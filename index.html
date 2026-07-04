@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Mis Gastos - Timeless</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#141414">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mis Gastos">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="head-left">
+    <div class="eyebrow">Timeless · Control personal</div>
+    <h1>Mis gastos</h1>
+    <div class="month-total">
+      <div class="label" id="monthLabel">Este mes</div>
+      <div class="value">S/ <span id="monthValue">0.00</span></div>
+    </div>
+  </div>
+  <div class="gear-btn" id="gearBtn">⚙️</div>
+</header>
+
+<div class="theme-drawer" id="themeDrawer">
+  <div class="title">Color</div>
+  <div class="swatches" id="swatches"></div>
+</div>
+
+<div class="add-card">
+  <div class="amount-row">
+    <span>S/</span>
+    <input type="number" id="amountInput" placeholder="0.00" inputmode="decimal" step="0.01">
+  </div>
+  <input type="text" id="noteInput" placeholder="Nota (opcional) — ej: polera Dickies">
+
+  <div class="cats" id="catGrid"></div>
+
+  <div class="new-cat-form" id="newCatForm">
+    <div class="row">
+      <input type="text" id="newCatEmoji" class="emoji-input" placeholder="🏷️" maxlength="2">
+      <input type="text" id="newCatName" placeholder="Nombre de la categoría">
+    </div>
+    <div class="new-cat-actions">
+      <button class="btn-cancel" id="cancelNewCat">Cancelar</button>
+      <button class="btn-confirm" id="confirmNewCat">Crear categoría</button>
+    </div>
+  </div>
+
+  <button class="save-btn" id="saveBtn" disabled>Agregar gasto</button>
+</div>
+
+<div class="section-title">Por categoría</div>
+<div class="donut-card" id="donutCard">
+  <div class="donut-wrap">
+    <svg id="donutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto por categoría"></svg>
+    <div class="donut-center">
+      <div class="donut-center-label" id="donutCenterLabel">Total mes</div>
+      <div class="donut-center-value" id="donutCenterValue">S/ 0.00</div>
+    </div>
+  </div>
+  <div class="donut-legend" id="donutLegend"></div>
+</div>
+<div class="breakdown" id="breakdown"></div>
+
+<div class="section-title">Comparar meses</div>
+<div class="months-card" id="monthsCard">
+  <div class="months-bars" id="monthsBars"></div>
+  <div class="months-list" id="monthsList"></div>
+</div>
+
+<div class="section-title">Movimientos recientes</div>
+<div class="feed" id="feed"></div>
+
+<script src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.log('SW no registrado:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
