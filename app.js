@@ -378,9 +378,93 @@ function renderBreakdown(){
 
   container.innerHTML = rows.map(c=>{
     const pct = grandTotal>0 ? (c.total/grandTotal*100) : 0;
-    return '<div class="bd-row"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span><span class="amt">S/ ' + fmt(c.total) + '</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
+    return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span><span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
+
+  container.querySelectorAll('.bd-row[data-cat]').forEach(row=>{
+    row.addEventListener('click', ()=> openCategoryDetail(row.getAttribute('data-cat')));
+  });
 }
+
+/* ---------- Detalle diario por categoría (modal) ---------- */
+// Suma por día del mes actual, solo para una categoría.
+function dailyTotalsForCategory(catId){
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totals = new Array(daysInMonth + 1).fill(0); // index 1..daysInMonth
+  expenses.forEach(e=>{
+    if(e.category !== catId) return;
+    const d = new Date(e.date);
+    if(d.getFullYear() === year && d.getMonth() === month){
+      totals[d.getDate()] += e.amount;
+    }
+  });
+  return {totals, daysInMonth, year, month};
+}
+
+function openCategoryDetail(catId){
+  const cat = catById(catId) || {id:catId, icon:'🗂️', name:'Otros'};
+  const {totals, daysInMonth, year, month} = dailyTotalsForCategory(catId);
+  const monthTotal = totals.reduce((a,b)=>a+b, 0);
+  const maxDay = Math.max.apply(null, totals);
+
+  document.getElementById('cdIcon').textContent = cat.icon;
+  document.getElementById('cdName').textContent = cat.name;
+  document.getElementById('cdTotal').textContent = 'S/ ' + fmt(monthTotal);
+
+  const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
+  document.getElementById('cdSub').textContent = 'Gasto por día — ' + monthName.charAt(0).toUpperCase() + monthName.slice(1);
+
+  // Barras horizontales: TODOS los días del mes (los de cero se muestran igual).
+  let barsHtml = '';
+  for(let day = 1; day <= daysInMonth; day++){
+    const val = totals[day];
+    const pct = maxDay > 0 ? (val / maxDay * 100) : 0;
+    const amtStr = val > 0 ? ('S/ ' + fmt(val)) : '—';
+    barsHtml +=
+      '<div class="cd-day-row' + (val > 0 ? '' : ' cd-zero') + '">' +
+        '<span class="cd-day-num">' + day + '</span>' +
+        '<span class="cd-day-track"><span class="cd-day-fill" style="width:' + pct + '%"></span></span>' +
+        '<span class="cd-day-amt">' + amtStr + '</span>' +
+      '</div>';
+  }
+  document.getElementById('cdBars').innerHTML = barsHtml;
+
+  // Lista de texto: solo días con gasto (orden cronológico).
+  let listHtml = '';
+  for(let day = 1; day <= daysInMonth; day++){
+    if(totals[day] > 0){
+      const label = new Date(year, month, day).toLocaleDateString('es-PE', {weekday:'short', day:'2-digit', month:'short'});
+      listHtml +=
+        '<div class="cd-li">' +
+          '<span class="cd-li-date">' + label + '</span>' +
+          '<span class="cd-li-amt">S/ ' + fmt(totals[day]) + '</span>' +
+        '</div>';
+    }
+  }
+  if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
+  document.getElementById('cdList').innerHTML = listHtml;
+
+  const overlay = document.getElementById('catDetailOverlay');
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  overlay.scrollTop = 0;
+}
+
+function closeCategoryDetail(){
+  const overlay = document.getElementById('catDetailOverlay');
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+document.getElementById('cdClose').addEventListener('click', closeCategoryDetail);
+document.getElementById('catDetailOverlay').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) closeCategoryDetail(); // click fuera de la tarjeta
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape') closeCategoryDetail();
+});
 
 /* ---------- Comparar meses ---------- */
 function monthKey(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }

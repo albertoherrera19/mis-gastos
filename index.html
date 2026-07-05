@@ -80,6 +80,21 @@
 <div class="section-title">Movimientos recientes</div>
 <div class="feed" id="feed"></div>
 
+<!-- Detalle diario por categoría (modal) -->
+<div class="cat-detail-overlay" id="catDetailOverlay" aria-hidden="true">
+  <div class="cat-detail" role="dialog" aria-modal="true" aria-labelledby="cdName">
+    <div class="cd-header">
+      <div class="cd-title"><span class="cd-icon" id="cdIcon"></span><span id="cdName"></span></div>
+      <button class="cd-close" id="cdClose" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="cd-total">Total este mes <span id="cdTotal">S/ 0.00</span></div>
+    <div class="cd-sub" id="cdSub">Gasto por día</div>
+    <div class="cd-bars" id="cdBars"></div>
+    <div class="cd-list-title">Días con gasto</div>
+    <div class="cd-list" id="cdList"></div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
