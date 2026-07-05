@@ -386,7 +386,7 @@ function renderBreakdown(){
   });
 }
 
-/* ---------- Detalle diario por categoría (modal) ---------- */
+/* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.
 function dailyTotalsForCategory(catId){
   const now = new Date();
@@ -403,68 +403,177 @@ function dailyTotalsForCategory(catId){
   return {totals, daysInMonth, year, month};
 }
 
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// Estado del gráfico de detalle
+let cdDays = [];            // [{day, total, label}] solo días con gasto
+let cdBarWidth = 20;        // ancho actual de barra (px), controlado por zoom
+let cdMinBarW = 10;         // zoom mínimo: todo cabe en pantalla
+let cdMaxBarW = 56;         // zoom máximo
+let cdActiveIndex = -1;     // barra con tooltip visible
+
 function openCategoryDetail(catId){
   const cat = catById(catId) || {id:catId, icon:'🗂️', name:'Otros'};
   const {totals, daysInMonth, year, month} = dailyTotalsForCategory(catId);
   const monthTotal = totals.reduce((a,b)=>a+b, 0);
-  const maxDay = Math.max.apply(null, totals);
 
   document.getElementById('cdIcon').textContent = cat.icon;
   document.getElementById('cdName').textContent = cat.name;
   document.getElementById('cdTotal').textContent = 'S/ ' + fmt(monthTotal);
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
-  document.getElementById('cdSub').textContent = 'Gasto por día — ' + monthName.charAt(0).toUpperCase() + monthName.slice(1);
+  document.getElementById('cdSub').textContent = 'Gasto por día — ' + cap(monthName);
 
-  // Barras horizontales: TODOS los días del mes (los de cero se muestran igual).
-  let barsHtml = '';
-  for(let day = 1; day <= daysInMonth; day++){
-    const val = totals[day];
-    const pct = maxDay > 0 ? (val / maxDay * 100) : 0;
-    const amtStr = val > 0 ? ('S/ ' + fmt(val)) : '—';
-    barsHtml +=
-      '<div class="cd-day-row' + (val > 0 ? '' : ' cd-zero') + '">' +
-        '<span class="cd-day-num">' + day + '</span>' +
-        '<span class="cd-day-track"><span class="cd-day-fill" style="width:' + pct + '%"></span></span>' +
-        '<span class="cd-day-amt">' + amtStr + '</span>' +
-      '</div>';
-  }
-  document.getElementById('cdBars').innerHTML = barsHtml;
-
-  // Lista de texto: solo días con gasto (orden cronológico).
-  let listHtml = '';
+  // Solo días CON gasto (orden cronológico).
+  cdDays = [];
   for(let day = 1; day <= daysInMonth; day++){
     if(totals[day] > 0){
       const label = new Date(year, month, day).toLocaleDateString('es-PE', {weekday:'short', day:'2-digit', month:'short'});
-      listHtml +=
-        '<div class="cd-li">' +
-          '<span class="cd-li-date">' + label + '</span>' +
-          '<span class="cd-li-amt">S/ ' + fmt(totals[day]) + '</span>' +
-        '</div>';
+      cdDays.push({day: day, total: totals[day], label: cap(label)});
     }
   }
+  const maxTotal = cdDays.reduce((m,x)=>Math.max(m, x.total), 0) || 1;
+
+  const inner = document.getElementById('cdGraphInner');
+  cdActiveIndex = -1;
+
+  if(cdDays.length === 0){
+    inner.innerHTML = '<div class="cd-graph-empty">Sin gastos en esta categoría este mes.</div>';
+  } else {
+    // Barras verticales (crecen desde abajo); altura ∝ monto del día.
+    let barsHtml = '';
+    cdDays.forEach((x, i)=>{
+      const h = Math.max(4, Math.round(x.total / maxTotal * 165));
+      barsHtml +=
+        '<button class="cd-vcol" data-i="' + i + '" type="button">' +
+          '<div class="cd-vbar" style="height:' + h + 'px"></div>' +
+          '<div class="cd-vday">' + x.day + '</div>' +
+        '</button>';
+    });
+    barsHtml += '<div class="cd-tip" id="cdTip"></div>';
+    inner.innerHTML = barsHtml;
+    inner.querySelectorAll('.cd-vcol').forEach(col=>{
+      col.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        showCdTip(parseInt(col.getAttribute('data-i'), 10));
+      });
+    });
+  }
+
+  // Lista de texto (sin cambios): solo días con gasto.
+  let listHtml = '';
+  cdDays.forEach(x=>{
+    listHtml +=
+      '<div class="cd-li">' +
+        '<span class="cd-li-date">' + x.label + '</span>' +
+        '<span class="cd-li-amt">S/ ' + fmt(x.total) + '</span>' +
+      '</div>';
+  });
   if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
   document.getElementById('cdList').innerHTML = listHtml;
 
-  const overlay = document.getElementById('catDetailOverlay');
-  overlay.classList.add('open');
-  overlay.setAttribute('aria-hidden', 'false');
-  overlay.scrollTop = 0;
+  const page = document.getElementById('catDetailPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+
+  // Calcular tamaños tras el layout real.
+  requestAnimationFrame(initCdZoom);
+}
+
+// Ajusta el zoom mínimo para que todos los días quepan en el ancho visible.
+function initCdZoom(){
+  if(cdDays.length === 0) return;
+  const graph = document.getElementById('cdGraph');
+  const n = cdDays.length;
+  const gapRatio = 0.45, padX = 12; // el gap escala con el ancho (ver CSS)
+  const avail = graph.clientWidth - padX * 2;
+  // ancho + gaps = barW*n + barW*gapRatio*(n-1) ≤ avail  →  todos caben
+  cdMinBarW = Math.max(5, avail / (n + gapRatio * (n - 1)));
+  cdMaxBarW = 56;
+  if(cdMinBarW > cdMaxBarW) cdMaxBarW = cdMinBarW; // pocos días: ya salen anchos
+  setCdBarWidth(cdMinBarW);
+  graph.scrollLeft = 0;
+}
+
+function setCdBarWidth(w){
+  cdBarWidth = Math.max(cdMinBarW, Math.min(cdMaxBarW, w));
+  document.getElementById('cdGraphInner').style.setProperty('--bar-w', cdBarWidth + 'px');
+  if(cdActiveIndex >= 0) positionCdTip(cdActiveIndex);
+}
+
+function showCdTip(i){
+  const inner = document.getElementById('cdGraphInner');
+  inner.querySelectorAll('.cd-vcol.active').forEach(c=>c.classList.remove('active'));
+  const col = inner.querySelectorAll('.cd-vcol')[i];
+  if(!col) return;
+  col.classList.add('active');
+  cdActiveIndex = i;
+  positionCdTip(i);
+}
+
+function positionCdTip(i){
+  const inner = document.getElementById('cdGraphInner');
+  const tip = document.getElementById('cdTip');
+  const col = inner.querySelectorAll('.cd-vcol')[i];
+  if(!tip || !col) return;
+  tip.textContent = cdDays[i].label + ' · S/ ' + fmt(cdDays[i].total);
+  tip.style.left = (col.offsetLeft + col.offsetWidth / 2) + 'px';
+  tip.classList.add('show');
+}
+
+function hideCdTip(){
+  const tip = document.getElementById('cdTip');
+  if(tip) tip.classList.remove('show');
+  document.querySelectorAll('#cdGraphInner .cd-vcol.active').forEach(c=>c.classList.remove('active'));
+  cdActiveIndex = -1;
 }
 
 function closeCategoryDetail(){
-  const overlay = document.getElementById('catDetailOverlay');
-  overlay.classList.remove('open');
-  overlay.setAttribute('aria-hidden', 'true');
+  const page = document.getElementById('catDetailPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+  hideCdTip();
 }
 
-document.getElementById('cdClose').addEventListener('click', closeCategoryDetail);
-document.getElementById('catDetailOverlay').addEventListener('click', (e)=>{
-  if(e.target === e.currentTarget) closeCategoryDetail(); // click fuera de la tarjeta
-});
+document.getElementById('cdBack').addEventListener('click', closeCategoryDetail);
 document.addEventListener('keydown', (e)=>{
-  if(e.key === 'Escape') closeCategoryDetail();
+  if(e.key === 'Escape' && document.getElementById('catDetailPage').classList.contains('open')) closeCategoryDetail();
 });
+
+// Tocar fuera de una barra oculta el tooltip.
+document.getElementById('cdGraph').addEventListener('click', (e)=>{
+  if(!e.target.closest('.cd-vcol')) hideCdTip();
+});
+
+// Pinch-to-zoom: solo cambia el ancho de las barras dentro del gráfico.
+(function attachCdPinch(){
+  const graph = document.getElementById('cdGraph');
+  if(!graph) return;
+  let startDist = 0, startW = 0;
+  function dist(t){
+    const dx = t[0].clientX - t[1].clientX;
+    const dy = t[0].clientY - t[1].clientY;
+    return Math.hypot(dx, dy);
+  }
+  graph.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){
+      startDist = dist(e.touches);
+      startW = cdBarWidth;
+      hideCdTip();
+      e.preventDefault();
+    }
+  }, {passive:false});
+  graph.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && startDist > 0){
+      e.preventDefault();
+      setCdBarWidth(startW * dist(e.touches) / startDist);
+    }
+  }, {passive:false});
+  graph.addEventListener('touchend', (e)=>{ if(e.touches.length < 2) startDist = 0; });
+})();
 
 /* ---------- Comparar meses ---------- */
 function monthKey(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
