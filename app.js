@@ -15,6 +15,7 @@ const THEMES = {
   celeste: {label:'Celeste', bg:'#0c1a1f', card:'#12242b', line:'#1f3843', bone:'#eaf6f9', muted:'#7fa8b3', accent:'#22b8e8', accentDim:'#0f4a5c', chip:'#0e1c21', swatch:'#22b8e8'},
   morado:  {label:'Morado',  bg:'#160f22', card:'#201533', line:'#33234c', bone:'#f2ecfa', muted:'#9c85bd', accent:'#9b4de0', accentDim:'#3f2064', chip:'#180f24', swatch:'#9b4de0'},
   rojo:    {label:'Rojo',    bg:'#1c0f0f', card:'#2a1414', line:'#432020', bone:'#faeeee', muted:'#c08a8a', accent:'#e8302f', accentDim:'#5c1414', chip:'#1e1010', swatch:'#e8302f'},
+  rosado:  {label:'Rosado',  bg:'#1f0f18', card:'#2b1421', line:'#472034', bone:'#faeef5', muted:'#c98aae', accent:'#ec4899', accentDim:'#5c1d3c', chip:'#20101a', swatch:'#ec4899'},
   verde:   {label:'Verde',   bg:'#0f1a11', card:'#16261a', line:'#26402c', bone:'#eefaf0', muted:'#8fb897', accent:'#4ade80', accentDim:'#1c4d2c', chip:'#101c13', swatch:'#4ade80'},
   turquesa:{label:'Turquesa',bg:'#08201f', card:'#0e2c2a', line:'#1d443f', bone:'#e9faf7', muted:'#7db8ae', accent:'#1de9b6', accentDim:'#0c4d43', chip:'#0a2321', swatch:'#1de9b6'},
   naranja: {label:'Naranja', bg:'#1f130a', card:'#2c1c0e', line:'#472c15', bone:'#faf0e6', muted:'#c9986b', accent:'#f5851f', accentDim:'#5c360f', chip:'#20140a', swatch:'#f5851f'},
@@ -36,6 +37,7 @@ const STORAGE_KEY = 'timeless_expenses_log';
 const THEME_KEY = 'timeless_expenses_theme';
 const CUSTOM_CAT_KEY = 'timeless_custom_categories';
 const ACCENT_THEME_KEY = 'timeless_accent_theme';
+const CAT_COLOR_KEY = 'timeless_category_colors';
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
 
@@ -407,15 +409,20 @@ function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
 // Estado del gráfico de detalle
 let cdDays = [];            // [{day, total, label}] solo días con gasto
-let cdBarWidth = 20;        // ancho actual de barra (px), controlado por zoom
-let cdMinBarW = 10;         // zoom mínimo: todo cabe en pantalla
-let cdMaxBarW = 56;         // zoom máximo
+let cdDaysInMonth = 30;     // días del mes actual (eje = línea de tiempo completa)
+let cdSlot = 46;            // px por día en el eje (controla zoom/separación)
+let cdSlotMin = 12;         // zoom mínimo: el mes completo cabe en pantalla
+let cdSlotMax = 84;         // zoom máximo
+let cdBarW = 34;            // ancho de barra actual (px) — fijo, solo cambia con zoom
 let cdActiveIndex = -1;     // barra con tooltip visible
+let cdCatId = null;         // categoría abierta actualmente
 
 function openCategoryDetail(catId){
   const cat = catById(catId) || {id:catId, icon:'🗂️', name:'Otros'};
   const {totals, daysInMonth, year, month} = dailyTotalsForCategory(catId);
   const monthTotal = totals.reduce((a,b)=>a+b, 0);
+  cdCatId = catId;
+  cdDaysInMonth = daysInMonth;
 
   document.getElementById('cdIcon').textContent = cat.icon;
   document.getElementById('cdName').textContent = cat.name;
@@ -440,12 +447,12 @@ function openCategoryDetail(catId){
   if(cdDays.length === 0){
     inner.innerHTML = '<div class="cd-graph-empty">Sin gastos en esta categoría este mes.</div>';
   } else {
-    // Barras verticales (crecen desde abajo); altura ∝ monto del día.
+    // Barras verticales de ANCHO FIJO, ubicadas en su día real dentro del mes.
     let barsHtml = '';
     cdDays.forEach((x, i)=>{
       const h = Math.max(4, Math.round(x.total / maxTotal * 165));
       barsHtml +=
-        '<button class="cd-vcol" data-i="' + i + '" type="button">' +
+        '<button class="cd-vcol" data-i="' + i + '" data-day="' + x.day + '" type="button">' +
           '<div class="cd-vbar" style="height:' + h + 'px"></div>' +
           '<div class="cd-vday">' + x.day + '</div>' +
         '</button>';
@@ -472,6 +479,11 @@ function openCategoryDetail(catId){
   if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
   document.getElementById('cdList').innerHTML = listHtml;
 
+  // Color propio de la categoría (o acento del tema si no tiene).
+  applyCdAccent(catId);
+  renderCdColorSwatches(catId);
+  document.getElementById('cdColorPanel').classList.remove('open');
+
   const page = document.getElementById('catDetailPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
@@ -482,25 +494,42 @@ function openCategoryDetail(catId){
   requestAnimationFrame(initCdZoom);
 }
 
-// Ajusta el zoom mínimo para que todos los días quepan en el ancho visible.
+// Define los límites de zoom y abre en un "zoom base" cómodo.
 function initCdZoom(){
   if(cdDays.length === 0) return;
   const graph = document.getElementById('cdGraph');
-  const n = cdDays.length;
-  const gapRatio = 0.45, padX = 12; // el gap escala con el ancho (ver CSS)
-  const avail = graph.clientWidth - padX * 2;
-  // ancho + gaps = barW*n + barW*gapRatio*(n-1) ≤ avail  →  todos caben
-  cdMinBarW = Math.max(5, avail / (n + gapRatio * (n - 1)));
-  cdMaxBarW = 56;
-  if(cdMinBarW > cdMaxBarW) cdMaxBarW = cdMinBarW; // pocos días: ya salen anchos
-  setCdBarWidth(cdMinBarW);
+  const pad = 12;
+  const fitSlot = (graph.clientWidth - pad * 2) / cdDaysInMonth; // mes completo cabe
+  cdSlotMin = Math.max(6, fitSlot);
+  cdSlotMax = 84;
+  const base = 46; // barra ≈ 34px en zoom base
+  if(cdSlotMax < cdSlotMin) cdSlotMax = cdSlotMin;
+  cdSlotBase = Math.min(Math.max(base, cdSlotMin), cdSlotMax);
+  setCdSlot(cdSlotBase);
   graph.scrollLeft = 0;
 }
+let cdSlotBase = 46;
 
-function setCdBarWidth(w){
-  cdBarWidth = Math.max(cdMinBarW, Math.min(cdMaxBarW, w));
-  document.getElementById('cdGraphInner').style.setProperty('--bar-w', cdBarWidth + 'px');
+// Reposiciona las barras en la línea de tiempo según el slot (px por día) actual.
+function layoutCdBars(){
+  const inner = document.getElementById('cdGraphInner');
+  const cols = inner.querySelectorAll('.cd-vcol');
+  if(!cols.length) return;
+  const pad = 12;
+  cdBarW = Math.max(6, cdSlot * 0.75);
+  inner.style.width = (cdDaysInMonth * cdSlot + pad * 2) + 'px';
+  cols.forEach(col=>{
+    const day = parseInt(col.getAttribute('data-day'), 10);
+    const centerX = pad + (day - 0.5) * cdSlot;
+    col.style.width = cdBarW + 'px';
+    col.style.left = (centerX - cdBarW / 2) + 'px';
+  });
   if(cdActiveIndex >= 0) positionCdTip(cdActiveIndex);
+}
+
+function setCdSlot(s){
+  cdSlot = Math.max(cdSlotMin, Math.min(cdSlotMax, s));
+  layoutCdBars();
 }
 
 function showCdTip(i){
@@ -530,11 +559,74 @@ function hideCdTip(){
   cdActiveIndex = -1;
 }
 
+/* ----- Color propio por categoría (independiente del tema general) ----- */
+let categoryColors = {}; // { catId: themeKey }
+
+function loadCategoryColors(){
+  try{ categoryColors = JSON.parse(localStorage.getItem(CAT_COLOR_KEY)) || {}; }
+  catch(e){ categoryColors = {}; }
+}
+function saveCategoryColors(){
+  try{ localStorage.setItem(CAT_COLOR_KEY, JSON.stringify(categoryColors)); }catch(e){}
+}
+function themeAccentHex(){
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
+}
+// Color a usar en el gráfico de esa categoría: el propio, o el acento del tema.
+function categoryColorHex(catId){
+  const key = categoryColors[catId];
+  if(key && THEMES[key]) return THEMES[key].accent;
+  return themeAccentHex();
+}
+function applyCdAccent(catId){
+  const page = document.getElementById('catDetailPage');
+  const hex = categoryColorHex(catId);
+  page.style.setProperty('--cd-accent', hex);
+  const dot = document.getElementById('cdColorDot');
+  if(dot) dot.style.background = hex;
+}
+function renderCdColorSwatches(catId){
+  const box = document.getElementById('cdColorSwatches');
+  if(!box) return;
+  const activeKey = categoryColors[catId] || null;
+  box.innerHTML = '';
+  Object.keys(THEMES).forEach(key=>{
+    const t = THEMES[key];
+    const el = document.createElement('div');
+    el.className = 'cd-swatch' + (key === activeKey ? ' active' : '');
+    el.innerHTML = '<div class="dot" style="background:' + t.swatch + '"></div><div class="lbl">' + t.label + '</div>';
+    el.onclick = ()=> chooseCategoryColor(catId, key);
+    box.appendChild(el);
+  });
+}
+function chooseCategoryColor(catId, key){
+  const dupId = Object.keys(categoryColors).find(id => id !== catId && categoryColors[id] === key);
+  const applyIt = ()=>{
+    categoryColors[catId] = key;
+    saveCategoryColors();
+    applyCdAccent(catId);
+    renderCdColorSwatches(catId);
+  };
+  if(dupId){
+    const dupCat = catById(dupId);
+    const dupName = dupCat ? dupCat.name : 'Otra categoría';
+    const ok = window.confirm('⚠️ ' + dupName + ' ya tiene este color asignado.\n¿Seguro que quieres usar este color de todas formas?');
+    if(ok) applyIt();
+  } else {
+    applyIt();
+  }
+}
+
+document.getElementById('cdColorBtn').addEventListener('click', ()=>{
+  document.getElementById('cdColorPanel').classList.toggle('open');
+});
+
 function closeCategoryDetail(){
   const page = document.getElementById('catDetailPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('cd-open');
+  document.getElementById('cdColorPanel').classList.remove('open');
   hideCdTip();
 }
 
@@ -548,11 +640,11 @@ document.getElementById('cdGraph').addEventListener('click', (e)=>{
   if(!e.target.closest('.cd-vcol')) hideCdTip();
 });
 
-// Pinch-to-zoom: solo cambia el ancho de las barras dentro del gráfico.
+// Pinch-to-zoom: solo cambia el ancho/separación de las barras (el slot por día).
 (function attachCdPinch(){
   const graph = document.getElementById('cdGraph');
   if(!graph) return;
-  let startDist = 0, startW = 0;
+  let startDist = 0, startSlot = 0;
   function dist(t){
     const dx = t[0].clientX - t[1].clientX;
     const dy = t[0].clientY - t[1].clientY;
@@ -561,7 +653,7 @@ document.getElementById('cdGraph').addEventListener('click', (e)=>{
   graph.addEventListener('touchstart', (e)=>{
     if(e.touches.length === 2){
       startDist = dist(e.touches);
-      startW = cdBarWidth;
+      startSlot = cdSlot;
       hideCdTip();
       e.preventDefault();
     }
@@ -569,7 +661,7 @@ document.getElementById('cdGraph').addEventListener('click', (e)=>{
   graph.addEventListener('touchmove', (e)=>{
     if(e.touches.length === 2 && startDist > 0){
       e.preventDefault();
-      setCdBarWidth(startW * dist(e.touches) / startDist);
+      setCdSlot(startSlot * dist(e.touches) / startDist);
     }
   }, {passive:false});
   graph.addEventListener('touchend', (e)=>{ if(e.touches.length < 2) startDist = 0; });
@@ -698,5 +790,6 @@ if(!THEMES[lastAccentTheme] || NEUTRAL_THEMES.indexOf(lastAccentTheme) !== -1){ 
 initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
+loadCategoryColors();
 renderCats();
 loadExpenses();
