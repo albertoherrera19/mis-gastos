@@ -10,14 +10,15 @@ const BASE_CATEGORIES = [
 ];
 
 const THEMES = {
-  negro:   {label:'Negro',   bg:'#141414', card:'#1c1c1c', line:'#2c2c2c', bone:'#f2f0ea', muted:'#8a8680', accent:'#e8442c', accentDim:'#5c2016', chip:'#111111', swatch:'#e8442c'},
+  negro:   {label:'Negro',   bg:'#141414', card:'#1c1c1c', line:'#2c2c2c', bone:'#f2f0ea', muted:'#8a8680', accent:'#e8442c', accentDim:'#5c2016', chip:'#111111', swatch:'#141414'},
   azul:    {label:'Azul',    bg:'#0d1420', card:'#141d2b', line:'#233047', bone:'#eef3fa', muted:'#7c93ad', accent:'#2f7dd8', accentDim:'#173a63', chip:'#0f1621', swatch:'#2f7dd8'},
   celeste: {label:'Celeste', bg:'#0c1a1f', card:'#12242b', line:'#1f3843', bone:'#eaf6f9', muted:'#7fa8b3', accent:'#22b8e8', accentDim:'#0f4a5c', chip:'#0e1c21', swatch:'#22b8e8'},
   morado:  {label:'Morado',  bg:'#160f22', card:'#201533', line:'#33234c', bone:'#f2ecfa', muted:'#9c85bd', accent:'#9b4de0', accentDim:'#3f2064', chip:'#180f24', swatch:'#9b4de0'},
   rojo:    {label:'Rojo',    bg:'#1c0f0f', card:'#2a1414', line:'#432020', bone:'#faeeee', muted:'#c08a8a', accent:'#e8302f', accentDim:'#5c1414', chip:'#1e1010', swatch:'#e8302f'},
   verde:   {label:'Verde',   bg:'#0f1a11', card:'#16261a', line:'#26402c', bone:'#eefaf0', muted:'#8fb897', accent:'#4ade80', accentDim:'#1c4d2c', chip:'#101c13', swatch:'#4ade80'},
+  turquesa:{label:'Turquesa',bg:'#08201f', card:'#0e2c2a', line:'#1d443f', bone:'#e9faf7', muted:'#7db8ae', accent:'#1de9b6', accentDim:'#0c4d43', chip:'#0a2321', swatch:'#1de9b6'},
   naranja: {label:'Naranja', bg:'#1f130a', card:'#2c1c0e', line:'#472c15', bone:'#faf0e6', muted:'#c9986b', accent:'#f5851f', accentDim:'#5c360f', chip:'#20140a', swatch:'#f5851f'},
-  blanco:  {label:'Blanco',  bg:'#f7f5f1', card:'#ffffff', line:'#e3e0d8', bone:'#181614', muted:'#8a8680', accent:'#e8442c', accentDim:'#fbdad4', chip:'#efece6', swatch:'#e8442c'},
+  blanco:  {label:'Blanco',  bg:'#f7f5f1', card:'#ffffff', line:'#e3e0d8', bone:'#181614', muted:'#8a8680', accent:'#e8442c', accentDim:'#fbdad4', chip:'#efece6', swatch:'#ffffff'},
 };
 
 // Paleta de colores distintivos para el gráfico circular (independiente del tema)
@@ -34,6 +35,13 @@ let activeDonutCat = null;
 const STORAGE_KEY = 'timeless_expenses_log';
 const THEME_KEY = 'timeless_expenses_theme';
 const CUSTOM_CAT_KEY = 'timeless_custom_categories';
+const ACCENT_THEME_KEY = 'timeless_accent_theme';
+const EYEBROW_KEY = 'timeless_eyebrow_text';
+const EYEBROW_DEFAULT = 'Timeless · Control personal';
+
+// Temas "neutros": solo cambian fondo/tarjetas, conservan el ultimo acento elegido.
+const NEUTRAL_THEMES = ['negro', 'blanco'];
+let lastAccentTheme = 'azul';
 
 function allCategories(){ return BASE_CATEGORIES.concat(customCategories); }
 function catById(id){ return allCategories().find(c=>c.id===id); }
@@ -48,14 +56,25 @@ function catColor(id){
 
 function applyTheme(name){
   const t = THEMES[name] || THEMES.negro;
+
+  // Color de acento: si el tema es neutro (Negro/Blanco), conservamos el ultimo
+  // acento no-neutro elegido; si no, este tema pasa a ser el acento de referencia.
+  let accentSrc = t;
+  if(NEUTRAL_THEMES.indexOf(name) !== -1){
+    accentSrc = THEMES[lastAccentTheme] || THEMES.azul;
+  } else {
+    lastAccentTheme = name;
+    try{ localStorage.setItem(ACCENT_THEME_KEY, name); }catch(e){}
+  }
+
   const root = document.documentElement.style;
   root.setProperty('--bg', t.bg);
   root.setProperty('--card', t.card);
   root.setProperty('--line', t.line);
   root.setProperty('--bone', t.bone);
   root.setProperty('--muted', t.muted);
-  root.setProperty('--accent', t.accent);
-  root.setProperty('--accent-dim', t.accentDim);
+  root.setProperty('--accent', accentSrc.accent);
+  root.setProperty('--accent-dim', accentSrc.accentDim);
   root.setProperty('--chip', t.chip);
   const meta = document.querySelector('meta[name="theme-color"]');
   if(meta) meta.setAttribute('content', t.bg);
@@ -79,6 +98,51 @@ function renderSwatches(activeName){
 document.getElementById('gearBtn').addEventListener('click', ()=>{
   document.getElementById('themeDrawer').classList.toggle('open');
 });
+
+// ---------- Titulo (eyebrow) editable, persistido en localStorage ----------
+function initEyebrow(){
+  const box = document.getElementById('eyebrow');
+  const txt = document.getElementById('eyebrowText');
+  if(!box || !txt) return;
+
+  try{ const s = localStorage.getItem(EYEBROW_KEY); if(s) txt.textContent = s; }catch(e){}
+
+  let editing = false;
+
+  function startEdit(){
+    if(editing) return;
+    editing = true;
+    txt.setAttribute('contenteditable', 'true');
+    txt.spellcheck = false;
+    txt.focus();
+    const range = document.createRange();
+    range.selectNodeContents(txt);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function commit(){
+    if(!editing) return;
+    editing = false;
+    txt.setAttribute('contenteditable', 'false');
+    let v = txt.textContent.replace(/\s+/g, ' ').trim();
+    if(!v){ v = EYEBROW_DEFAULT; }
+    txt.textContent = v;
+    try{ localStorage.setItem(EYEBROW_KEY, v); }catch(e){}
+  }
+
+  box.addEventListener('click', startEdit);
+  txt.addEventListener('blur', commit);
+  txt.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); txt.blur(); }
+    else if(e.key === 'Escape'){
+      e.preventDefault();
+      try{ txt.textContent = localStorage.getItem(EYEBROW_KEY) || EYEBROW_DEFAULT; }catch(err){ txt.textContent = EYEBROW_DEFAULT; }
+      txt.blur();
+    }
+  });
+}
 
 function loadCustomCategories(){
   try{
@@ -436,6 +500,9 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
 
 let savedTheme = 'azul';
 try{ savedTheme = localStorage.getItem(THEME_KEY) || 'azul'; }catch(e){ savedTheme = 'azul'; }
+try{ lastAccentTheme = localStorage.getItem(ACCENT_THEME_KEY) || (NEUTRAL_THEMES.indexOf(savedTheme) === -1 ? savedTheme : 'azul'); }catch(e){ lastAccentTheme = 'azul'; }
+if(!THEMES[lastAccentTheme] || NEUTRAL_THEMES.indexOf(lastAccentTheme) !== -1){ lastAccentTheme = 'azul'; }
+initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 renderCats();

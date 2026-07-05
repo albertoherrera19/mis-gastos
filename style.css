@@ -19,7 +19,7 @@ body{
   transition:background .25s ease, color .25s ease;
 }
 header{
-  padding:22px 20px 16px;
+  padding:calc(env(safe-area-inset-top, 0px) + 42px) 20px 16px;
   border-bottom:1px dashed var(--line);
   display:flex;
   justify-content:space-between;
@@ -33,6 +33,17 @@ header{
   color:var(--accent);
   font-weight:700;
   margin-bottom:6px;
+  cursor:pointer;
+}
+.eyebrow .edit-pencil{
+  font-size:11px;
+  margin-left:6px;
+  opacity:.55;
+  cursor:pointer;
+}
+#eyebrowText[contenteditable="true"]{
+  outline:none;
+  border-bottom:1px dashed var(--accent);
 }
 h1{
   margin:0;
@@ -96,7 +107,7 @@ h1{
   width:34px;
   height:34px;
   border-radius:50%;
-  border:2px solid transparent;
+  border:2px solid rgba(128,128,128,.4);
 }
 .swatch.active .dot{border-color:var(--bone);}
 .swatch .lbl{font-size:9px;color:var(--muted);text-align:center;}
