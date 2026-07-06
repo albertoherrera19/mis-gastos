@@ -324,7 +324,7 @@ function renderDonut(){
     segs +=
       '<circle class="seg' + (isActive ? ' active' : '') + '" data-cat="' + row.id + '" ' +
       'cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" ' +
-      'stroke="' + row.color + '" stroke-width="14" ' +
+      'stroke="' + categoryDotColor(row.id) + '" stroke-width="14" ' +
       'stroke-dasharray="' + len + ' ' + (C - len) + '" ' +
       'stroke-dashoffset="' + (-offset) + '"></circle>';
     offset += len;

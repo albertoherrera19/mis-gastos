@@ -346,7 +346,7 @@ body.cd-open{overflow:hidden;}
   flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
 }
-.cd-title #cdName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cd-title #cdName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--cd-accent, var(--accent));}
 .cd-color-btn{
   background:var(--chip);
   border:1px solid var(--line);
