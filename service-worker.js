@@ -1,5 +1,5 @@
 // Service worker básico: cachea los archivos para uso offline tras la primera visita.
-const CACHE = 'mis-gastos-timeless-v7';
+const CACHE = 'mis-gastos-timeless-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,11 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png'
 ];
+
+// Permite que la página fuerce la activación inmediata de una versión nueva.
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
+});
 
 // Instalar: precachear todos los archivos de la app.
 self.addEventListener('install', (event) => {
