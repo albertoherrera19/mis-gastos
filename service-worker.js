@@ -1,5 +1,5 @@
 // Service worker básico: cachea los archivos para uso offline tras la primera visita.
-const CACHE = 'mis-gastos-timeless-v5';
+const CACHE = 'mis-gastos-timeless-v6';
 const ASSETS = [
   './',
   './index.html',

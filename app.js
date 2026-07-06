@@ -56,6 +56,14 @@ function catColor(id){
   return CAT_PALETTE[h % CAT_PALETTE.length];
 }
 
+// Color del punto/bolita de una categoría: usa su color personalizado si tiene,
+// si no, el color estable por hash. (categoryColors se define más abajo.)
+function categoryDotColor(id){
+  const key = (typeof categoryColors !== 'undefined') ? categoryColors[id] : null;
+  if(key && THEMES[key]) return THEMES[key].accent;
+  return catColor(id);
+}
+
 function applyTheme(name){
   const t = THEMES[name] || THEMES.negro;
 
@@ -323,11 +331,11 @@ function renderDonut(){
   });
   svg.innerHTML = segs;
 
-  // Leyenda
+  // Leyenda (el punto usa el color personalizado de la categoría si tiene)
   legend.innerHTML = rows.map(row=>{
     const isActive = activeDonutCat === row.id;
     return '<div class="leg' + (isActive ? ' active' : '') + '" data-cat="' + row.id + '">' +
-           '<span class="dot" style="background:' + row.color + '"></span>' + row.name + '</div>';
+           '<span class="dot" style="background:' + categoryDotColor(row.id) + '"></span>' + row.name + '</div>';
   }).join('');
 
   // Clicks (segmentos + leyenda) -> alternar categoría activa
@@ -426,7 +434,7 @@ function openCategoryDetail(catId){
 
   document.getElementById('cdIcon').textContent = cat.icon;
   document.getElementById('cdName').textContent = cat.name;
-  document.getElementById('cdTotal').textContent = 'S/ ' + fmt(monthTotal);
+  document.getElementById('cdTotal').textContent = fmt(monthTotal);
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('cdSub').textContent = 'Gasto por día — ' + cap(monthName);
@@ -604,8 +612,9 @@ function chooseCategoryColor(catId, key){
   const applyIt = ()=>{
     categoryColors[catId] = key;
     saveCategoryColors();
-    applyCdAccent(catId);
-    renderCdColorSwatches(catId);
+    applyCdAccent(catId);            // barras del gráfico de esta categoría
+    renderCdColorSwatches(catId);    // marca el swatch activo
+    renderDonut();                   // punto de color en la lista "Por categoría"
   };
   if(dupId){
     const dupCat = catById(dupId);

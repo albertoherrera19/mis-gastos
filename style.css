@@ -269,7 +269,7 @@ input[type="text"]::placeholder{color:var(--muted);}
   font-size:11px;
   text-transform:uppercase;
   letter-spacing:.14em;
-  color:var(--muted);
+  color:var(--accent);
   font-weight:700;
 }
 
@@ -404,9 +404,10 @@ body.cd-open{overflow:hidden;}
   font-size:12px;
   text-transform:uppercase;
   letter-spacing:.08em;
-  color:var(--muted);
+  color:var(--accent);
+  font-weight:700;
 }
-.cd-total span{
+.cd-total .cd-total-val{
   display:block;
   font-family:monospace;
   font-size:30px;
@@ -416,12 +417,15 @@ body.cd-open{overflow:hidden;}
   letter-spacing:0;
   margin-top:2px;
 }
+.cd-total .cd-total-val #cdTotal{
+  color:var(--accent);
+}
 .cd-sub{
   margin:20px 0 8px;
   font-size:11px;
   text-transform:uppercase;
   letter-spacing:.12em;
-  color:var(--muted);
+  color:var(--accent);
   font-weight:700;
 }
 
@@ -509,7 +513,7 @@ body.cd-open{overflow:hidden;}
   font-size:11px;
   text-transform:uppercase;
   letter-spacing:.12em;
-  color:var(--muted);
+  color:var(--accent);
   font-weight:700;
 }
 .cd-list{
