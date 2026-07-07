@@ -539,17 +539,48 @@ function openCategoryDetail(catId){
     });
   }
 
-  // Lista de texto (sin cambios): solo días con gasto.
+  // Lista de días con gasto: cada fila se puede expandir para ver sus gastos.
   let listHtml = '';
   cdDays.forEach(x=>{
+    const dayItems = expenses.filter(e=>{
+      if(e.category !== catId) return false;
+      const d = new Date(e.date);
+      return d.getFullYear()===year && d.getMonth()===month && d.getDate()===x.day;
+    }).sort((a,b)=> new Date(a.date) - new Date(b.date));
+
+    let itemsHtml = '';
+    dayItems.forEach(it=>{
+      const note = (it.note && it.note.trim()) ? it.note : 'Sin nota';
+      itemsHtml +=
+        '<div class="cd-li-item">' +
+          '<span class="cd-li-note">' + note + '</span>' +
+          '<span class="cd-li-iamt">S/ ' + fmt(it.amount) + '</span>' +
+        '</div>';
+    });
+
     listHtml +=
-      '<div class="cd-li">' +
-        '<span class="cd-li-date">' + x.label + '</span>' +
-        '<span class="cd-li-amt">S/ ' + fmt(x.total) + '</span>' +
+      '<div class="cd-li-wrap">' +
+        '<div class="cd-li" role="button" tabindex="0">' +
+          '<span class="cd-li-date">' + x.label + '</span>' +
+          '<span class="cd-li-r">' +
+            '<span class="cd-li-amt">S/ ' + fmt(x.total) + '</span>' +
+            '<span class="cd-li-caret">▼</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="cd-li-detail">' + itemsHtml + '</div>' +
       '</div>';
   });
   if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
-  document.getElementById('cdList').innerHTML = listHtml;
+  const cdListEl = document.getElementById('cdList');
+  cdListEl.innerHTML = listHtml;
+  // Expandir/colapsar cada fila de forma independiente (varias abiertas a la vez).
+  cdListEl.querySelectorAll('.cd-li-wrap').forEach(wrap=>{
+    const head = wrap.querySelector('.cd-li');
+    head.addEventListener('click', ()=> wrap.classList.toggle('open'));
+    head.addEventListener('keydown', (ev)=>{
+      if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); wrap.classList.toggle('open'); }
+    });
+  });
 
   // Color propio de la categoría (o acento del tema si no tiene).
   applyCdAccent(catId);
