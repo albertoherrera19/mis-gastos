@@ -41,12 +41,6 @@ const CAT_COLOR_KEY = 'timeless_category_colors';
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
 
-// ---------- Sincronización con Google Sheets (opcional) ----------
-// URL del Web App de Apps Script (termina en /exec). Mientras esté el texto
-// de relleno, la app funciona exactamente igual que siempre: solo localStorage.
-const SHEETS_WEBHOOK_URL = 'PEGA_AQUI_TU_URL_DE_APPS_SCRIPT';
-const SHEETS_PENDING_KEY = 'timeless_sheets_pending';
-
 // Temas "neutros": solo cambian fondo/tarjetas, conservan el ultimo acento elegido.
 const NEUTRAL_THEMES = ['negro', 'blanco'];
 let lastAccentTheme = 'azul';
@@ -271,64 +265,6 @@ function saveExpenses(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
   }catch(e){}
 }
-
-/* ---------- Envío de gastos a Google Sheets ----------
-   Cada gasto se guarda primero en localStorage (como siempre) y además se
-   encola para enviarse a la pestaña "Gastos" del Sheets. Si no hay internet,
-   queda pendiente y se reintenta al abrir la app o al volver la conexión.
-   Nada de esto bloquea ni rompe la app: los errores se ignoran en silencio. */
-
-function sheetsSyncEnabled(){
-  return typeof SHEETS_WEBHOOK_URL === 'string' && SHEETS_WEBHOOK_URL.indexOf('https://') === 0;
-}
-
-function loadSheetsQueue(){
-  try{ return JSON.parse(localStorage.getItem(SHEETS_PENDING_KEY)) || []; }
-  catch(e){ return []; }
-}
-
-function saveSheetsQueue(q){
-  try{ localStorage.setItem(SHEETS_PENDING_KEY, JSON.stringify(q)); }catch(e){}
-}
-
-function queueForSheets(exp){
-  if(!sheetsSyncEnabled()) return;
-  const cat = catById(exp.category);
-  const q = loadSheetsQueue();
-  q.push({
-    id: exp.id,
-    date: exp.date,
-    amount: exp.amount,
-    category: cat ? cat.name : exp.category,
-    note: exp.note || ''
-  });
-  saveSheetsQueue(q);
-  flushSheetsQueue();
-}
-
-let sheetsFlushing = false;
-function flushSheetsQueue(){
-  if(!sheetsSyncEnabled() || sheetsFlushing) return;
-  const q = loadSheetsQueue();
-  if(q.length === 0) return;
-  if(typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  sheetsFlushing = true;
-  const item = q[0];
-  fetch(SHEETS_WEBHOOK_URL, {
-    method: 'POST',
-    mode: 'no-cors', // evita bloqueos CORS; no necesitamos leer la respuesta
-    body: JSON.stringify(item)
-  }).then(()=>{
-    const rest = loadSheetsQueue().filter(x=>x.id !== item.id);
-    saveSheetsQueue(rest);
-    sheetsFlushing = false;
-    if(rest.length > 0) flushSheetsQueue(); // sigue con el resto de pendientes
-  }).catch(()=>{
-    sheetsFlushing = false; // sin internet: queda pendiente para el próximo intento
-  });
-}
-
-window.addEventListener('online', flushSheetsQueue);
 
 function renderAll(){
   renderMonthTotal();
@@ -1002,7 +938,6 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
   expenses.push(gasto);
 
   saveExpenses();
-  queueForSheets(gasto);
 
   document.getElementById('amountInput').value = '';
   document.getElementById('noteInput').value = '';
@@ -1022,4 +957,3 @@ loadCustomCategories();
 loadCategoryColors();
 renderCats();
 loadExpenses();
-flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes

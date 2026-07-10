@@ -1,5 +1,6 @@
 // Service worker básico: cachea los archivos para uso offline tras la primera visita.
-const CACHE = 'mis-gastos-timeless-v11';
+const CACHE_PREFIX = 'mis-gastos-timeless-';
+const CACHE = CACHE_PREFIX + 'v12';
 const ASSETS = [
   './',
   './index.html',
@@ -23,11 +24,14 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activar: borrar cachés viejas de versiones anteriores.
+// Activar: borrar solo cachés VIEJAS de ESTA app (por prefijo), para no tocar
+// las de otra app publicada en el mismo dominio (ej: mis-gastos-personal).
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(
+        keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE).map((k) => caches.delete(k))
+      )
     )
   );
   self.clients.claim();
