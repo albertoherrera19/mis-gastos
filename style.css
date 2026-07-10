@@ -56,8 +56,11 @@ h1{
   font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
 }
 .month-total .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;}
-.month-total .value{font-size:34px;font-weight:700;color:var(--bone);}
-.month-total .value span{color:var(--accent);}
+.month-total .value{font-size:34px;font-weight:700;color:var(--bone);white-space:nowrap;}
+.month-total .value span{color:var(--accent);margin-left:5px;}
+/* Escala para montos grandes sin desbordar */
+.month-total .value.compact{font-size:28px;}
+.month-total .value.mini{font-size:23px;}
 
 .gear-btn{
   background:var(--chip);
@@ -260,8 +263,9 @@ input[type="text"]::placeholder{color:var(--muted);}
   cursor:pointer;
 }
 .save-btn:disabled{
-  background:#3a3a3a;
-  color:#777;
+  background:var(--accent-dim);
+  color:var(--muted);
+  opacity:.75;
 }
 
 .section-title{
@@ -416,9 +420,14 @@ body.cd-open{overflow:hidden;}
   text-transform:none;
   letter-spacing:0;
   margin-top:2px;
+  white-space:nowrap;
 }
+/* Escala para montos grandes sin desbordar */
+.cd-total .cd-total-val.compact{font-size:25px;}
+.cd-total .cd-total-val.mini{font-size:21px;}
 .cd-total .cd-total-val #cdTotal{
   color:var(--accent);
+  margin-left:5px;
 }
 .cd-sub{
   margin:20px 0 8px;
@@ -553,13 +562,18 @@ body.cd-open{overflow:hidden;}
   align-items:baseline;
   gap:12px;
   padding:4px 0;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
 }
+.cd-li-item:active{opacity:.6;}
 .cd-li-item .cd-li-note{
   font-size:12px;
   color:var(--muted);
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+  text-decoration:underline dotted;
+  text-underline-offset:3px;
 }
 .cd-li-item .cd-li-iamt{
   font-family:monospace;
@@ -621,6 +635,7 @@ body.cd-open{overflow:hidden;}
   margin-top:3px;
 }
 .donut-center-value.small{font-size:16px;}
+.donut-center-value.tiny{font-size:14px;}
 .donut-center-pct{
   font-size:11px;
   color:var(--muted);
@@ -775,4 +790,99 @@ body.cd-open{overflow:hidden;}
   color:var(--muted);
   font-size:13px;
   padding:30px 20px;
+}
+
+/* ---- Ordenar movimientos recientes ---- */
+.section-title.feed-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  position:relative;
+}
+.feed-sort-btn{
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:4px 9px;
+  border-radius:7px;
+  cursor:pointer;
+}
+.feed-sort-menu{
+  display:none;
+  position:absolute;
+  right:0;
+  top:calc(100% + 6px);
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px;
+  min-width:150px;
+  z-index:20;
+}
+.feed-sort-menu.open{display:block;}
+.fs-opt{
+  padding:8px 10px;
+  font-size:12px;
+  font-weight:600;
+  color:var(--muted);
+  border-radius:7px;
+  cursor:pointer;
+  text-transform:none;
+  letter-spacing:0;
+}
+.fs-opt.active{color:var(--bone);background:var(--chip);}
+
+/* ---- Feed agrupado por categoría ---- */
+.feed-group{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:10px;
+  margin-bottom:8px;
+  overflow:hidden;
+}
+.fg-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.fg-head .fg-icon{
+  font-size:18px;
+  width:32px;
+  height:32px;
+  background:var(--chip);
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+}
+.fg-head .fg-name{flex:1;font-size:13px;font-weight:700;min-width:0;}
+.fg-head .fg-count{color:var(--muted);font-weight:600;font-size:11px;}
+.fg-head .fg-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.fg-head .fg-amt{font-family:monospace;font-size:14px;font-weight:700;}
+.fg-head .fg-caret{
+  font-size:9px;
+  color:var(--muted);
+  display:inline-block;
+  transition:transform .15s ease;
+}
+.feed-group.open .fg-caret{transform:rotate(180deg);}
+.fg-body{display:none;padding:0 8px 8px;}
+.feed-group.open .fg-body{display:block;}
+.fg-body .tx{margin-bottom:6px;background:var(--chip);}
+.fg-body .tx:last-child{margin-bottom:0;}
+
+/* ---- Highlight de transacción (al saltar desde el detalle) ---- */
+.tx.highlight{animation:txGlow 3s ease forwards;}
+@keyframes txGlow{
+  0%{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent), 0 0 18px var(--accent);}
+  60%{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent), 0 0 10px var(--accent);}
+  100%{border-color:var(--line);box-shadow:none;}
 }

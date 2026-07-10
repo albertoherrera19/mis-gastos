@@ -24,7 +24,7 @@
     <h1>Mis gastos</h1>
     <div class="month-total">
       <div class="label" id="monthLabel">Este mes</div>
-      <div class="value">S/ <span id="monthValue">0.00</span></div>
+      <div class="value">S/<span id="monthValue">0.00</span></div>
     </div>
   </div>
   <div class="gear-btn" id="gearBtn">⚙️</div>
@@ -77,7 +77,16 @@
   <div class="months-list" id="monthsList"></div>
 </div>
 
-<div class="section-title">Movimientos recientes</div>
+<div class="section-title feed-title">
+  <span>Movimientos recientes</span>
+  <span class="feed-sort" id="feedSortWrap">
+    <button class="feed-sort-btn" id="feedSortBtn" type="button">Ordenar ▾</button>
+    <div class="feed-sort-menu" id="feedSortMenu">
+      <div class="fs-opt active" data-mode="default">Predeterminado</div>
+      <div class="fs-opt" data-mode="category">Por categoría</div>
+    </div>
+  </span>
+</div>
 <div class="feed" id="feed"></div>
 
 <!-- Detalle diario por categoría (página completa) -->
@@ -91,7 +100,7 @@
     <div class="cd-color-title">Color de esta categoría</div>
     <div class="cd-color-swatches" id="cdColorSwatches"></div>
   </div>
-  <div class="cd-total">Total este mes <span class="cd-total-val">S/ <span id="cdTotal">0.00</span></span></div>
+  <div class="cd-total">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span></div>
   <div class="cd-sub" id="cdSub">Gasto por día</div>
   <div class="cd-graph" id="cdGraph">
     <div class="cd-graph-inner" id="cdGraphInner"></div>

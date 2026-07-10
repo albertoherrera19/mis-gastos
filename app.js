@@ -183,7 +183,8 @@ function renderCats(){
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (selectedCat===cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
-    btn.onclick = ()=>{ selectedCat = cat.id; renderCats(); validateForm(); };
+    // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
+    btn.onclick = ()=>{ selectedCat = (selectedCat === cat.id) ? null : cat.id; renderCats(); validateForm(); };
 
     if(!cat.base){
       const del = document.createElement('div');
@@ -191,11 +192,23 @@ function renderCats(){
       del.textContent = '✕';
       del.onclick = (ev)=>{
         ev.stopPropagation();
+        // Confirmación antes de borrar; si tiene gastos, ofrecer moverlos a "Otros".
+        const catExpenses = expenses.filter(e=>e.category === cat.id);
+        if(catExpenses.length > 0){
+          const ok = window.confirm('⚠️ "' + cat.name + '" tiene ' + catExpenses.length + ' gasto(s) registrado(s).\n\nAceptar: eliminar la categoría y mover esos gastos a "Otros" (no se pierden).\nCancelar: no borrar nada.');
+          if(!ok) return;
+          expenses.forEach(e=>{ if(e.category === cat.id) e.category = 'otros'; });
+          saveExpenses();
+        } else {
+          const ok = window.confirm('¿Eliminar la categoría "' + cat.name + '"?');
+          if(!ok) return;
+        }
         customCategories = customCategories.filter(c=>c.id !== cat.id);
         if(selectedCat === cat.id) selectedCat = null;
         saveCustomCategories();
         renderCats();
         validateForm();
+        renderAll(); // refleja los gastos movidos a "Otros"
       };
       btn.appendChild(del);
     }
@@ -336,7 +349,14 @@ function currentMonthExpenses(){
 function renderMonthTotal(){
   const monthExp = currentMonthExpenses();
   const total = monthExp.reduce((s,e)=>s+e.amount,0);
-  document.getElementById('monthValue').textContent = fmt(total);
+  const s = fmt(total);
+  document.getElementById('monthValue').textContent = s;
+  // Escala el tamaño para montos grandes (4-5 dígitos) sin desbordar.
+  const valEl = document.querySelector('.month-total .value');
+  if(valEl){
+    valEl.classList.toggle('compact', s.length > 9 && s.length <= 12);
+    valEl.classList.toggle('mini', s.length > 12);
+  }
   const monthName = new Date().toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
 }
@@ -426,6 +446,7 @@ function updateDonutCenter(rows, grandTotal){
       label.textContent = row.icon + ' ' + row.name;
       value.textContent = 'S/ ' + fmt(row.total);
       value.classList.add('small');
+      value.classList.toggle('tiny', fmt(row.total).length > 8);
       if(!pctEl){
         pctEl = document.createElement('div');
         pctEl.id = 'donutCenterPct';
@@ -439,6 +460,7 @@ function updateDonutCenter(rows, grandTotal){
   label.textContent = 'Total mes';
   value.textContent = 'S/ ' + fmt(grandTotal);
   value.classList.remove('small');
+  value.classList.toggle('tiny', fmt(grandTotal).length > 8);
   if(pctEl) pctEl.textContent = '';
 }
 
@@ -499,6 +521,13 @@ function openCategoryDetail(catId){
   document.getElementById('cdIcon').textContent = cat.icon;
   document.getElementById('cdName').textContent = cat.name;
   document.getElementById('cdTotal').textContent = fmt(monthTotal);
+  // Escala el tamaño para montos grandes sin desbordar.
+  const cdValWrap = document.querySelector('.cd-total-val');
+  if(cdValWrap){
+    const sLen = fmt(monthTotal).length;
+    cdValWrap.classList.toggle('compact', sLen > 9 && sLen <= 12);
+    cdValWrap.classList.toggle('mini', sLen > 12);
+  }
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('cdSub').textContent = 'Gasto por día — ' + cap(monthName);
@@ -552,7 +581,7 @@ function openCategoryDetail(catId){
     dayItems.forEach(it=>{
       const note = (it.note && it.note.trim()) ? it.note : 'Sin nota';
       itemsHtml +=
-        '<div class="cd-li-item">' +
+        '<div class="cd-li-item" data-eid="' + it.id + '">' +
           '<span class="cd-li-note">' + note + '</span>' +
           '<span class="cd-li-iamt">S/ ' + fmt(it.amount) + '</span>' +
         '</div>';
@@ -579,6 +608,13 @@ function openCategoryDetail(catId){
     head.addEventListener('click', ()=> wrap.classList.toggle('open'));
     head.addEventListener('keydown', (ev)=>{
       if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); wrap.classList.toggle('open'); }
+    });
+  });
+  // Tocar un gasto individual -> ir a esa transacción en "Movimientos recientes".
+  cdListEl.querySelectorAll('.cd-li-item').forEach(item=>{
+    item.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      jumpToExpense(item.getAttribute('data-eid'));
     });
   });
 
@@ -609,7 +645,12 @@ function initCdZoom(){
   if(cdSlotMax < cdSlotMin) cdSlotMax = cdSlotMin;
   cdSlotBase = Math.min(Math.max(base, cdSlotMin), cdSlotMax);
   setCdSlot(cdSlotBase);
+  // Siempre iniciar mostrando desde el día 1 (extremo izquierdo).
+  // Se fuerza en varios momentos porque el navegador puede reposicionar
+  // el scroll después del primer layout.
   graph.scrollLeft = 0;
+  requestAnimationFrame(()=>{ graph.scrollLeft = 0; });
+  setTimeout(()=>{ graph.scrollLeft = 0; }, 120);
 }
 let cdSlotBase = 46;
 
@@ -836,6 +877,19 @@ function renderMonths(){
   }).join('');
 }
 
+// Modo de orden de "Movimientos recientes": 'default' (cronológico) o 'category'.
+// Siempre inicia en 'default' al abrir la app (no se persiste).
+let feedSortMode = 'default';
+const feedOpenGroups = new Set(); // grupos expandidos en el modo por categoría
+
+// Markup de una transacción del feed (compartido por ambos modos).
+function txHtml(e){
+  const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
+  const d = new Date(e.date);
+  const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+  return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="del" data-id="' + e.id + '">✕</div></div>';
+}
+
 function renderFeed(){
   const feed = document.getElementById('feed');
   const sorted = [...expenses].sort((a,b)=> new Date(b.date) - new Date(a.date)).slice(0,30);
@@ -845,21 +899,90 @@ function renderFeed(){
     return;
   }
 
-  feed.innerHTML = sorted.map(e=>{
-    const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
-    const d = new Date(e.date);
-    const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
-    return '<div class="tx"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="del" data-id="' + e.id + '">✕</div></div>';
-  }).join('');
+  if(feedSortMode === 'category'){
+    // Agrupar por categoría (en el orden de las categorías), expandibles.
+    const groups = {};
+    sorted.forEach(e=>{ (groups[e.category] = groups[e.category] || []).push(e); });
+    const orderedIds = allCategories().map(c=>c.id).filter(id=>groups[id]);
+    Object.keys(groups).forEach(id=>{ if(orderedIds.indexOf(id) === -1) orderedIds.push(id); });
 
+    feed.innerHTML = orderedIds.map(id=>{
+      const cat = catById(id) || {icon:'🗂️', name:'Otros'};
+      const items = groups[id];
+      const total = items.reduce((s,e)=>s+e.amount,0);
+      const open = feedOpenGroups.has(id);
+      return '<div class="feed-group' + (open ? ' open' : '') + '" data-cat="' + id + '">' +
+               '<div class="fg-head">' +
+                 '<span class="fg-icon">' + cat.icon + '</span>' +
+                 '<span class="fg-name">' + cat.name + ' <span class="fg-count">(' + items.length + ')</span></span>' +
+                 '<span class="fg-right"><span class="fg-amt">S/ ' + fmt(total) + '</span><span class="fg-caret">▼</span></span>' +
+               '</div>' +
+               '<div class="fg-body">' + items.map(txHtml).join('') + '</div>' +
+             '</div>';
+    }).join('');
+
+    feed.querySelectorAll('.feed-group').forEach(group=>{
+      group.querySelector('.fg-head').addEventListener('click', ()=>{
+        const id = group.getAttribute('data-cat');
+        group.classList.toggle('open');
+        if(group.classList.contains('open')) feedOpenGroups.add(id);
+        else feedOpenGroups.delete(id);
+      });
+    });
+  } else {
+    feed.innerHTML = sorted.map(txHtml).join('');
+  }
+
+  // Borrado (misma lógica en ambos modos).
   feed.querySelectorAll('.del').forEach(btn=>{
-    btn.onclick = ()=>{
+    btn.onclick = (ev)=>{
+      ev.stopPropagation();
       const id = btn.getAttribute('data-id');
       expenses = expenses.filter(e=>e.id !== id);
       saveExpenses();
       renderAll();
     };
   });
+}
+
+function setFeedSortMode(mode){
+  feedSortMode = mode;
+  document.querySelectorAll('#feedSortMenu .fs-opt').forEach(o=>{
+    o.classList.toggle('active', o.getAttribute('data-mode') === mode);
+  });
+  renderFeed();
+}
+
+document.getElementById('feedSortBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  document.getElementById('feedSortMenu').classList.toggle('open');
+});
+document.querySelectorAll('#feedSortMenu .fs-opt').forEach(opt=>{
+  opt.addEventListener('click', ()=>{
+    setFeedSortMode(opt.getAttribute('data-mode'));
+    document.getElementById('feedSortMenu').classList.remove('open');
+  });
+});
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest('.feed-sort')) document.getElementById('feedSortMenu').classList.remove('open');
+});
+
+// Salta desde un gasto individual (detalle de categoría) hasta esa
+// transacción en "Movimientos recientes", con highlight temporal.
+function jumpToExpense(id){
+  closeCategoryDetail();
+  if(feedSortMode !== 'default') setFeedSortMode('default');
+  setTimeout(()=>{
+    const tx = document.querySelector('#feed .tx[data-id="' + id + '"]');
+    const target = tx || document.getElementById('feed');
+    target.scrollIntoView({behavior:'smooth', block:'center'});
+    if(tx){
+      tx.classList.remove('highlight');
+      void tx.offsetWidth; // reinicia la animación si se repite
+      tx.classList.add('highlight');
+      setTimeout(()=>{ tx.classList.remove('highlight'); }, 3100);
+    }
+  }, 80);
 }
 
 document.getElementById('amountInput').addEventListener('input', validateForm);
