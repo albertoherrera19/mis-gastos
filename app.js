@@ -977,6 +977,17 @@ function jumpToExpense(id){
 
 document.getElementById('amountInput').addEventListener('input', validateForm);
 
+// Fecha del gasto: la elegida en el selector (si hay) o ahora mismo.
+// Se usa mediodía local para evitar corrimientos de día por zona horaria.
+function resolveGastoDate(){
+  const dv = document.getElementById('dateInput').value; // "YYYY-MM-DD" o ""
+  if(dv){
+    const d = new Date(dv + 'T12:00:00');
+    if(!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
 document.getElementById('saveBtn').addEventListener('click', ()=>{
   const amount = parseFloat(document.getElementById('amountInput').value);
   const note = document.getElementById('noteInput').value.trim();
@@ -987,7 +998,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     amount: amount,
     category: selectedCat,
     note: note,
-    date: new Date().toISOString()
+    date: resolveGastoDate()
   };
   expenses.push(gasto);
 
@@ -995,11 +1006,18 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
 
   document.getElementById('amountInput').value = '';
   document.getElementById('noteInput').value = '';
+  document.getElementById('dateInput').value = '';
   selectedCat = null;
   renderCats();
   validateForm();
   renderAll();
 });
+
+// Evita elegir fechas futuras.
+(function(){
+  const di = document.getElementById('dateInput');
+  if(di) di.max = new Date().toISOString().slice(0,10);
+})();
 
 let savedTheme = 'azul';
 try{ savedTheme = localStorage.getItem(THEME_KEY) || 'azul'; }catch(e){ savedTheme = 'azul'; }

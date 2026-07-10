@@ -182,6 +182,30 @@ input[type="text"]{
 }
 input[type="text"]::placeholder{color:var(--muted);}
 
+/* Selector de fecha opcional en el formulario */
+.date-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:14px;
+}
+.date-label{font-size:13px;color:var(--bone);}
+.date-hint{color:var(--muted);font-size:11px;}
+.date-input{
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--bone);
+  border-radius:8px;
+  padding:8px 10px;
+  font-size:13px;
+  font-family:inherit;
+  outline:none;
+  min-width:0;
+}
+.date-input:focus{border-color:var(--accent);}
+.date-input::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer;}
+
 .cats{
   display:grid;
   grid-template-columns:repeat(4,1fr);
