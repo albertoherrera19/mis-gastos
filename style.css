@@ -477,6 +477,22 @@ body.cd-open{overflow:hidden;}
   color:var(--accent);
   margin-left:5px;
 }
+.cd-compare{
+  display:inline-block;
+  font-size:11px;
+  font-weight:700;
+  font-family:monospace;
+  padding:2px 7px;
+  border-radius:20px;
+  margin-left:6px;
+  vertical-align:middle;
+  text-transform:none;
+  letter-spacing:0;
+  white-space:nowrap;
+}
+.cd-compare:empty{display:none;}
+.cd-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
+.cd-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
 .cd-sub{
   margin:20px 0 8px;
   font-size:11px;
@@ -681,9 +697,10 @@ body.cd-open{overflow:hidden;}
   font-size:19px;
   font-weight:700;
   margin-top:3px;
+  white-space:nowrap;
+  max-width:120px;
 }
-.donut-center-value.small{font-size:16px;}
-.donut-center-value.tiny{font-size:14px;}
+.donut-center-value .dc-num{margin-left:3px;}
 .donut-center-pct{
   font-size:11px;
   color:var(--muted);

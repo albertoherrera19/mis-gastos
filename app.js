@@ -424,6 +424,20 @@ function renderDonut(){
   updateDonutCenter(rows, grandTotal);
 }
 
+// Muestra "S/" pegado al monto (compacto) y escala el tamaño según los dígitos,
+// para que siempre quepa limpio dentro del círculo del donut sin tocar el anillo.
+function fitDonutValue(el, numStr, isCategory){
+  el.innerHTML = 'S/<span class="dc-num">' + numStr + '</span>';
+  const L = numStr.length; // "999.99"=6 · "1,461.19"=8 · "10,000.00"=9 · "100,000.00"=10
+  let size;
+  if(L >= 10)     size = isCategory ? 12 : 14;
+  else if(L >= 9) size = isCategory ? 13 : 15;
+  else if(L >= 8) size = isCategory ? 14 : 17;
+  else if(L >= 7) size = isCategory ? 15 : 18;
+  else            size = isCategory ? 16 : 20;
+  el.style.fontSize = size + 'px';
+}
+
 function updateDonutCenter(rows, grandTotal){
   const label = document.getElementById('donutCenterLabel');
   const value = document.getElementById('donutCenterValue');
@@ -434,9 +448,7 @@ function updateDonutCenter(rows, grandTotal){
     if(row){
       const pct = (row.total/grandTotal*100);
       label.textContent = row.icon + ' ' + row.name;
-      value.textContent = 'S/ ' + fmt(row.total);
-      value.classList.add('small');
-      value.classList.toggle('tiny', fmt(row.total).length > 8);
+      fitDonutValue(value, fmt(row.total), true);
       if(!pctEl){
         pctEl = document.createElement('div');
         pctEl.id = 'donutCenterPct';
@@ -448,9 +460,7 @@ function updateDonutCenter(rows, grandTotal){
     }
   }
   label.textContent = 'Total mes';
-  value.textContent = 'S/ ' + fmt(grandTotal);
-  value.classList.remove('small');
-  value.classList.toggle('tiny', fmt(grandTotal).length > 8);
+  fitDonutValue(value, fmt(grandTotal), false);
   if(pctEl) pctEl.textContent = '';
 }
 
@@ -491,6 +501,35 @@ function dailyTotalsForCategory(catId){
 
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
+// Total de una categoría en un mes/año dados.
+function categoryTotalForMonth(catId, year, month){
+  let t = 0;
+  expenses.forEach(e=>{
+    if(e.category !== catId) return;
+    const d = new Date(e.date);
+    if(d.getFullYear() === year && d.getMonth() === month) t += e.amount;
+  });
+  return t;
+}
+
+// Indicador ▲/▼ + % vs el mismo mes anterior. Se oculta si no hubo gasto el mes pasado.
+function updateCategoryCompare(catId, monthTotal, year, month){
+  const el = document.getElementById('cdCompare');
+  if(!el) return;
+  const prev = new Date(year, month - 1, 1);
+  const prevTotal = categoryTotalForMonth(catId, prev.getFullYear(), prev.getMonth());
+  if(prevTotal <= 0){
+    el.textContent = '';
+    el.className = 'cd-compare';
+    return;
+  }
+  const diff = (monthTotal - prevTotal) / prevTotal * 100;
+  const up = diff >= 0;
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
+  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName;
+  el.className = 'cd-compare ' + (up ? 'up' : 'down');
+}
+
 // Estado del gráfico de detalle
 let cdDays = [];            // [{day, total, label}] solo días con gasto
 let cdDaysInMonth = 30;     // días del mes actual (eje = línea de tiempo completa)
@@ -518,6 +557,9 @@ function openCategoryDetail(catId){
     cdValWrap.classList.toggle('compact', sLen > 9 && sLen <= 12);
     cdValWrap.classList.toggle('mini', sLen > 12);
   }
+
+  // Comparativo vs mes anterior (solo si hubo gasto el mes pasado en esta categoría).
+  updateCategoryCompare(catId, monthTotal, year, month);
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('cdSub').textContent = 'Gasto por día — ' + cap(monthName);
