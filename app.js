@@ -38,6 +38,7 @@ const THEME_KEY = 'timeless_expenses_theme';
 const CUSTOM_CAT_KEY = 'timeless_custom_categories';
 const ACCENT_THEME_KEY = 'timeless_accent_theme';
 const CAT_COLOR_KEY = 'timeless_category_colors';
+const BUDGET_KEY = 'timeless_category_budgets';
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
 
@@ -111,7 +112,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY];
 
 function exportBackup(){
   const data = {};
@@ -663,6 +664,10 @@ function openCategoryDetail(catId){
   renderCdColorSwatches(catId);
   document.getElementById('cdColorPanel').classList.remove('open');
 
+  // Presupuesto de la categoría.
+  document.getElementById('cdBudgetInput').value = categoryBudgets[catId] || '';
+  renderBudgetBar(catId, monthTotal);
+
   const page = document.getElementById('catDetailPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
@@ -753,6 +758,41 @@ function loadCategoryColors(){
 function saveCategoryColors(){
   try{ localStorage.setItem(CAT_COLOR_KEY, JSON.stringify(categoryColors)); }catch(e){}
 }
+
+/* ----- Presupuesto mensual por categoría (opcional) ----- */
+let categoryBudgets = {}; // { catId: monto }
+function loadCategoryBudgets(){
+  try{ categoryBudgets = JSON.parse(localStorage.getItem(BUDGET_KEY)) || {}; }
+  catch(e){ categoryBudgets = {}; }
+}
+function saveCategoryBudgets(){
+  try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
+}
+
+// Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
+function renderBudgetBar(catId, spent){
+  const bar = document.getElementById('cdBudgetBar');
+  if(!bar) return;
+  const limit = categoryBudgets[catId];
+  if(!(limit > 0)){
+    bar.classList.remove('show');
+    bar.innerHTML = '';
+    return;
+  }
+  const pct = spent / limit * 100;
+  const clamped = Math.min(pct, 100);
+  let state = '';
+  if(pct >= 100) state = 'over';
+  else if(pct >= 80) state = 'warn';
+  const statusTxt = pct >= 100
+    ? 'Superado (' + Math.round(pct) + '%)'
+    : Math.round(pct) + '%';
+  bar.className = 'cd-budget-bar show ' + state;
+  bar.innerHTML =
+    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+    '<span class="bb-status">' + statusTxt + '</span></div>' +
+    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+}
 function themeAccentHex(){
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
 }
@@ -804,6 +844,28 @@ function chooseCategoryColor(catId, key){
 
 document.getElementById('cdColorBtn').addEventListener('click', ()=>{
   document.getElementById('cdColorPanel').classList.toggle('open');
+});
+
+// Guardar / quitar presupuesto de la categoría abierta.
+function currentCdMonthTotal(){
+  const {totals} = dailyTotalsForCategory(cdCatId);
+  return totals.reduce((a,b)=>a+b, 0);
+}
+document.getElementById('cdBudgetSave').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  const v = parseFloat(document.getElementById('cdBudgetInput').value);
+  if(v > 0){ categoryBudgets[cdCatId] = v; }
+  else { delete categoryBudgets[cdCatId]; }
+  saveCategoryBudgets();
+  renderBudgetBar(cdCatId, currentCdMonthTotal());
+  document.getElementById('cdColorPanel').classList.remove('open');
+});
+document.getElementById('cdBudgetClear').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  delete categoryBudgets[cdCatId];
+  saveCategoryBudgets();
+  document.getElementById('cdBudgetInput').value = '';
+  renderBudgetBar(cdCatId, currentCdMonthTotal());
 });
 
 function closeCategoryDetail(){
@@ -1162,5 +1224,6 @@ initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCategoryColors();
+loadCategoryBudgets();
 renderCats();
 loadExpenses();

@@ -111,8 +111,16 @@
   <div class="cd-color-panel" id="cdColorPanel">
     <div class="cd-color-title">Color de esta categoría</div>
     <div class="cd-color-swatches" id="cdColorSwatches"></div>
+    <div class="cd-color-title cd-budget-title">Presupuesto mensual (opcional)</div>
+    <div class="cd-budget-input-wrap">
+      <span class="cd-budget-cur">S/</span>
+      <input type="number" id="cdBudgetInput" placeholder="0.00" inputmode="decimal" step="0.01">
+      <button class="cd-budget-btn" id="cdBudgetSave" type="button">Guardar</button>
+      <button class="cd-budget-btn cd-budget-clear" id="cdBudgetClear" type="button">Quitar</button>
+    </div>
   </div>
   <div class="cd-total">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
+  <div class="cd-budget-bar" id="cdBudgetBar"></div>
   <div class="cd-sub" id="cdSub">Gasto por día</div>
   <div class="cd-graph" id="cdGraph">
     <div class="cd-graph-inner" id="cdGraphInner"></div>
