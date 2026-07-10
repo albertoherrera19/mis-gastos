@@ -99,6 +99,30 @@ h1{
   grid-template-columns:repeat(5,1fr);
   gap:10px;
 }
+.theme-drawer .backup-title{margin-top:18px;}
+.backup-row{
+  display:flex;
+  gap:8px;
+}
+.backup-btn{
+  flex:1;
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--bone);
+  font-size:12px;
+  font-weight:700;
+  padding:10px 8px;
+  border-radius:9px;
+  cursor:pointer;
+  text-align:center;
+}
+.backup-btn:active{opacity:.7;}
+.backup-hint{
+  margin-top:8px;
+  font-size:10px;
+  color:var(--muted);
+  line-height:1.4;
+}
 .swatch{
   display:flex;
   flex-direction:column;

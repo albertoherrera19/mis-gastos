@@ -109,6 +109,60 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
   document.getElementById('themeDrawer').classList.toggle('open');
 });
 
+// ---------- Respaldo de datos: exportar / importar ----------
+// Descarga/restaura gastos, categorías personalizadas y preferencias.
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY];
+
+function exportBackup(){
+  const data = {};
+  BACKUP_KEYS.forEach(k=>{
+    const v = localStorage.getItem(k);
+    if(v !== null) data[k] = v;
+  });
+  const payload = { app: 'mis-gastos', exportedAt: new Date().toISOString(), data: data };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mis-gastos-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+function importBackupFile(file){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let parsed;
+    try{ parsed = JSON.parse(reader.result); }
+    catch(e){ alert('El archivo no es un respaldo válido.'); return; }
+    const data = (parsed && typeof parsed.data === 'object') ? parsed.data : parsed;
+    if(!data || typeof data !== 'object'){ alert('El archivo no es un respaldo válido.'); return; }
+
+    const ok = window.confirm('Esto reemplazará los gastos, categorías y preferencias actuales de este dispositivo con los del archivo.\n\n¿Continuar?');
+    if(!ok) return;
+
+    BACKUP_KEYS.forEach(k=>{
+      if(Object.prototype.hasOwnProperty.call(data, k)){
+        try{ localStorage.setItem(k, data[k]); }catch(e){}
+      }
+    });
+    location.reload();
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById('exportBtn').addEventListener('click', exportBackup);
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importFile').click();
+});
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(file) importBackupFile(file);
+  e.target.value = '';
+});
+
 // ---------- Titulo (eyebrow) editable, persistido en localStorage ----------
 function initEyebrow(){
   const box = document.getElementById('eyebrow');
