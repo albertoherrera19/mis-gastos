@@ -19,15 +19,22 @@
 <body>
 
 <header>
-  <div class="head-left">
-    <div class="eyebrow" id="eyebrow" title="Toca para editar"><span id="eyebrowText">Timeless · Control personal</span><span class="edit-pencil" id="eyebrowEdit">✎</span></div>
-    <h1>Mis gastos</h1>
-    <div class="month-total">
-      <div class="label" id="monthLabel">Este mes</div>
-      <div class="value">S/<span id="monthValue">0.00</span></div>
+  <div class="head-top">
+    <div class="head-left">
+      <div class="eyebrow" id="eyebrow" title="Toca para editar"><span id="eyebrowText">Timeless · Control personal</span><span class="edit-pencil" id="eyebrowEdit">✎</span></div>
+      <h1>Mis gastos</h1>
+    </div>
+    <div class="header-btns">
+      <div class="gear-btn" id="recurringBtn" title="Gastos recurrentes">🔁</div>
+      <div class="gear-btn" id="gearBtn">⚙️</div>
     </div>
   </div>
-  <div class="gear-btn" id="gearBtn">⚙️</div>
+  <div class="cat-groups" id="catGroups"></div>
+  <div class="cg-edit-link" id="cgEditLink"></div>
+  <div class="month-total">
+    <div class="label" id="monthLabel">Este mes</div>
+    <div class="value">S/<span id="monthValue">0.00</span></div>
+  </div>
 </header>
 
 <div class="theme-drawer" id="themeDrawer">
@@ -67,6 +74,11 @@
     </div>
   </div>
 
+  <div class="group-tag-row" id="groupTagRow">
+    <span class="group-tag-label">Grupo (opcional)</span>
+    <div class="group-tag-opts" id="groupTagOpts"></div>
+  </div>
+
   <button class="save-btn" id="saveBtn" disabled>Agregar gasto</button>
 </div>
 
@@ -95,9 +107,29 @@
     <button class="feed-sort-btn" id="feedSortBtn" type="button">Ordenar ▾</button>
     <div class="feed-sort-menu" id="feedSortMenu">
       <div class="fs-opt active" data-mode="default">Predeterminado</div>
+      <div class="fs-opt" data-mode="oldest">Más antiguo</div>
       <div class="fs-opt" data-mode="category">Por categoría</div>
     </div>
   </span>
+</div>
+<div class="feed-search">
+  <input type="text" id="feedSearchText" placeholder="🔍 Buscar por nota...">
+  <button class="feed-filter-toggle" id="feedFilterToggle" type="button">Filtros ▾</button>
+</div>
+<div class="feed-filters" id="feedFilters">
+  <div class="ff-row">
+    <span class="ff-lbl">Monto S/</span>
+    <input type="number" id="ffMin" placeholder="mín" inputmode="decimal" step="0.01">
+    <span class="ff-sep">–</span>
+    <input type="number" id="ffMax" placeholder="máx" inputmode="decimal" step="0.01">
+  </div>
+  <div class="ff-row">
+    <span class="ff-lbl">Fecha</span>
+    <input type="date" id="ffFrom" class="date-input">
+    <span class="ff-sep">–</span>
+    <input type="date" id="ffTo" class="date-input">
+  </div>
+  <button class="ff-clear" id="ffClear" type="button">Limpiar filtros</button>
 </div>
 <div class="feed" id="feed"></div>
 
@@ -106,7 +138,7 @@
   <div class="cd-topbar">
     <button class="cd-back" id="cdBack" aria-label="Volver">←</button>
     <div class="cd-title"><span class="cd-icon" id="cdIcon"></span><span id="cdName"></span></div>
-    <button class="cd-color-btn" id="cdColorBtn" aria-label="Color de la categoría"><span class="cd-color-dot" id="cdColorDot"></span></button>
+    <button class="cd-color-btn" id="cdColorBtn" aria-label="Ajustes de la categoría"><svg id="cdGearIcon" class="cd-gear-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
   </div>
   <div class="cd-color-panel" id="cdColorPanel">
     <div class="cd-color-title">Color de esta categoría</div>
@@ -147,7 +179,57 @@
       <input type="date" id="editDate" class="date-input">
     </label>
     <div class="cats" id="editCatGrid"></div>
+    <div class="group-tag-row" id="editGroupTagRow">
+      <span class="group-tag-label">Grupo (opcional)</span>
+      <div class="group-tag-opts" id="editGroupTagOpts"></div>
+    </div>
     <button class="save-btn" id="editSaveBtn">Guardar cambios</button>
+  </div>
+</div>
+
+<!-- Página completa para CREAR/EDITAR un grupo de categorías -->
+<div class="cat-detail-page group-page" id="groupPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="groupBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title" id="groupPageTitle">Nuevo grupo</span></div>
+  </div>
+  <div class="edit-card">
+    <input type="text" id="groupName" placeholder="Nombre del grupo — ej: Timeless">
+    <div class="cg-cats-title">Categorías del grupo</div>
+    <div class="cats" id="groupCatGrid"></div>
+    <button class="save-btn" id="groupSaveBtn">Guardar grupo</button>
+    <button class="group-delete-btn" id="groupDeleteBtn" type="button">Eliminar grupo</button>
+  </div>
+</div>
+
+<!-- Página completa: GASTOS RECURRENTES -->
+<div class="cat-detail-page recurring-page" id="recurringPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="recBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title" id="recTitle">Gastos recurrentes</span></div>
+  </div>
+  <div class="edit-card">
+    <div id="recListWrap">
+      <div class="rec-hint">Suscripciones o servicios fijos (ej: Netflix). Marca "Pagado" cada mes cuando lo cubras; opcionalmente se registra como gasto real.</div>
+      <div class="rec-list" id="recurringList"></div>
+      <button class="save-btn rec-add-btn" id="recurringAddBtn" type="button">+ Nuevo recurrente</button>
+    </div>
+    <div id="recFormWrap" style="display:none">
+      <div class="amount-row">
+        <span>S/</span>
+        <input type="number" id="recAmount" placeholder="0.00" inputmode="decimal" step="0.01">
+      </div>
+      <input type="text" id="recName" placeholder="Nombre — ej: Netflix">
+      <label class="date-row">
+        <span class="date-label">📅 Día del mes</span>
+        <input type="number" id="recDay" min="1" max="31" placeholder="5" class="rec-day-input">
+      </label>
+      <div class="cg-cats-title">Categoría</div>
+      <div class="cats" id="recCatGrid"></div>
+      <button class="save-btn" id="recSaveBtn">Guardar</button>
+      <button class="group-delete-btn" id="recDeleteBtn" type="button">Eliminar</button>
+      <button class="group-delete-btn" id="recCancelBtn" type="button">Cancelar</button>
+    </div>
   </div>
 </div>
 

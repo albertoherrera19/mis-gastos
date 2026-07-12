@@ -19,6 +19,9 @@ const THEMES = {
   verde:   {label:'Verde',   bg:'#0f1a11', card:'#16261a', line:'#26402c', bone:'#eefaf0', muted:'#8fb897', accent:'#4ade80', accentDim:'#1c4d2c', chip:'#101c13', swatch:'#4ade80'},
   turquesa:{label:'Turquesa',bg:'#08201f', card:'#0e2c2a', line:'#1d443f', bone:'#e9faf7', muted:'#7db8ae', accent:'#1de9b6', accentDim:'#0c4d43', chip:'#0a2321', swatch:'#1de9b6'},
   naranja: {label:'Naranja', bg:'#1f130a', card:'#2c1c0e', line:'#472c15', bone:'#faf0e6', muted:'#c9986b', accent:'#f5851f', accentDim:'#5c360f', chip:'#20140a', swatch:'#f5851f'},
+  amarillo:{label:'Amarillo',bg:'#1c1808', card:'#282011', line:'#43371a', bone:'#faf6e6', muted:'#c7b071', accent:'#f5c518', accentDim:'#5c4810', chip:'#1e1a0a', swatch:'#f5c518'},
+  gris:    {label:'Gris',    bg:'#16181c', card:'#20242b', line:'#333a44', bone:'#eef1f5', muted:'#8a94a3', accent:'#aab4c2', accentDim:'#3a424e', chip:'#181b20', swatch:'#aab4c2'},
+  marino:  {label:'Azul Marino', bg:'#080c1a', card:'#0f1730', line:'#1e2a52', bone:'#e9eefc', muted:'#7b88b5', accent:'#3b56f0', accentDim:'#16205c', chip:'#0a0f22', swatch:'#3b56f0'},
   blanco:  {label:'Blanco',  bg:'#f7f5f1', card:'#ffffff', line:'#e3e0d8', bone:'#181614', muted:'#8a8680', accent:'#e8442c', accentDim:'#fbdad4', chip:'#efece6', swatch:'#ffffff'},
 };
 
@@ -39,6 +42,11 @@ const CUSTOM_CAT_KEY = 'timeless_custom_categories';
 const ACCENT_THEME_KEY = 'timeless_accent_theme';
 const CAT_COLOR_KEY = 'timeless_category_colors';
 const BUDGET_KEY = 'timeless_category_budgets';
+const GROUPS_KEY = 'timeless_cat_groups';
+const RECURRING_KEY = 'timeless_recurring';
+// En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
+// (En el repo de amigos este flag va en false — diferencia intencional.)
+const PRECREATE_GROUPS = false;
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
 
@@ -112,7 +120,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY];
 
 function exportBackup(){
   const data = {};
@@ -321,7 +329,173 @@ function saveExpenses(){
   }catch(e){}
 }
 
+/* ---------- Grupos de categorías (filtro pantalla principal) ---------- */
+let catGroups = [];        // [{id, name, cats:[catIds]}]
+let activeGroup = null;    // null = Predeterminado (todas)
+
+function defaultGroups(){
+  const otras = allCategories().map(c=>c.id).filter(id=> id!=='ads' && id!=='inversion');
+  return [
+    {id:'g_timeless', name:'Timeless', cats:['ads','inversion']},
+    {id:'g_personal', name:'Personal', cats:otras}
+  ];
+}
+function loadCatGroups(){
+  let stored = null;
+  try{ stored = JSON.parse(localStorage.getItem(GROUPS_KEY)); }catch(e){ stored = null; }
+  if(Array.isArray(stored)){
+    catGroups = stored;
+  } else {
+    // Primera vez: pre-crear grupos por defecto solo si corresponde a esta app.
+    catGroups = PRECREATE_GROUPS ? defaultGroups() : [];
+    saveCatGroups();
+  }
+}
+function saveCatGroups(){
+  try{ localStorage.setItem(GROUPS_KEY, JSON.stringify(catGroups)); }catch(e){}
+}
+// Categorías del grupo activo (o null = todas).
+function activeGroupCats(){
+  if(!activeGroup) return null;
+  const g = catGroups.find(x=>x.id === activeGroup);
+  return g ? g.cats : null;
+}
+// Filtra una lista de gastos por el grupo activo: incluye los de categorías del
+// grupo Y los gastos individuales etiquetados manualmente con ese grupo.
+function applyGroupFilter(list){
+  if(!activeGroup) return list;
+  const g = catGroups.find(x=>x.id === activeGroup);
+  const cats = g ? g.cats : [];
+  return list.filter(e=> cats.indexOf(e.category) !== -1 || e.group === activeGroup);
+}
+
+// Pills de "Grupo (opcional)" en un formulario (agregar/editar).
+function renderGroupTagOpts(optsId, rowId, current, onPick){
+  const row = document.getElementById(rowId);
+  const box = document.getElementById(optsId);
+  if(!row || !box) return;
+  if(catGroups.length === 0){ row.classList.add('hidden'); box.innerHTML = ''; return; }
+  row.classList.remove('hidden');
+  let html = '<div class="gt-opt' + (!current ? ' selected' : '') + '" data-g="">Ninguno</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (current === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=> onPick(el.getAttribute('data-g') || null);
+  });
+}
+
+let selectedGroupTag = null;   // etiqueta de grupo del formulario de agregar
+function renderAddGroupTag(){
+  renderGroupTagOpts('groupTagOpts', 'groupTagRow', selectedGroupTag, (g)=>{ selectedGroupTag = g; renderAddGroupTag(); });
+}
+
+// Pestañas de grupos + link de editar el grupo activo.
+function renderCatGroups(){
+  const box = document.getElementById('catGroups');
+  if(!box) return;
+  let html = '<button class="cg-tab' + (!activeGroup ? ' active' : '') + '" data-g="">Predeterminado</button>';
+  catGroups.forEach(g=>{
+    html += '<button class="cg-tab' + (activeGroup === g.id ? ' active' : '') + '" data-g="' + g.id + '">' + g.name + '</button>';
+  });
+  html += '<button class="cg-tab cg-add" data-g="__add">+ Grupo</button>';
+  box.innerHTML = html;
+  box.querySelectorAll('.cg-tab').forEach(t=>{
+    t.onclick = ()=>{
+      const g = t.getAttribute('data-g');
+      if(g === '__add'){ openGroupEditor(null); return; }
+      activeGroup = g || null;
+      renderCatGroups();
+      renderMonthTotal(); renderDonut(); renderBreakdown();
+    };
+  });
+  // Link de editar (solo cuando hay un grupo custom activo)
+  const link = document.getElementById('cgEditLink');
+  if(link){
+    const g = activeGroup ? catGroups.find(x=>x.id === activeGroup) : null;
+    if(g){
+      link.innerHTML = '<button type="button">✏️ Editar "' + g.name + '"</button>';
+      link.querySelector('button').onclick = ()=> openGroupEditor(g.id);
+    } else {
+      link.innerHTML = '';
+    }
+  }
+  renderAddGroupTag(); // mantener el selector de grupo del formulario al día
+}
+
+/* ----- Editor de grupo (crear/editar, página completa) ----- */
+let editingGroupId = null;
+let groupSelCats = [];
+
+function renderGroupCatGrid(){
+  const grid = document.getElementById('groupCatGrid');
+  grid.innerHTML = '';
+  allCategories().forEach(cat=>{
+    const sel = groupSelCats.indexOf(cat.id) !== -1;
+    const btn = document.createElement('div');
+    btn.className = 'cat-btn' + (sel ? ' selected' : '');
+    btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
+    btn.onclick = ()=>{
+      const i = groupSelCats.indexOf(cat.id);
+      if(i === -1) groupSelCats.push(cat.id); else groupSelCats.splice(i,1);
+      renderGroupCatGrid();
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function openGroupEditor(gid){
+  editingGroupId = gid;
+  const g = gid ? catGroups.find(x=>x.id === gid) : null;
+  document.getElementById('groupPageTitle').textContent = g ? 'Editar grupo' : 'Nuevo grupo';
+  document.getElementById('groupName').value = g ? g.name : '';
+  groupSelCats = g ? g.cats.slice() : [];
+  document.getElementById('groupDeleteBtn').style.display = g ? '' : 'none';
+  renderGroupCatGrid();
+  const page = document.getElementById('groupPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+}
+
+function closeGroupEditor(){
+  const page = document.getElementById('groupPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+  editingGroupId = null;
+}
+
+function saveGroup(){
+  const name = document.getElementById('groupName').value.trim() || 'Grupo';
+  if(groupSelCats.length === 0){ alert('Elige al menos una categoría para el grupo.'); return; }
+  if(editingGroupId){
+    const g = catGroups.find(x=>x.id === editingGroupId);
+    if(g){ g.name = name; g.cats = groupSelCats.slice(); }
+  } else {
+    const id = 'grp_' + Date.now();
+    catGroups.push({id:id, name:name, cats:groupSelCats.slice()});
+    activeGroup = id;
+  }
+  saveCatGroups();
+  closeGroupEditor();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+}
+
+function deleteGroup(){
+  if(!editingGroupId) return;
+  if(!window.confirm('¿Eliminar este grupo? (no borra tus gastos, solo el filtro)')) return;
+  catGroups = catGroups.filter(x=>x.id !== editingGroupId);
+  if(activeGroup === editingGroupId) activeGroup = null;
+  saveCatGroups();
+  closeGroupEditor();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+}
+
 function renderAll(){
+  renderCatGroups();
   renderMonthTotal();
   renderDonut();
   renderBreakdown();
@@ -338,7 +512,7 @@ function currentMonthExpenses(){
 }
 
 function renderMonthTotal(){
-  const monthExp = currentMonthExpenses();
+  const monthExp = applyGroupFilter(currentMonthExpenses());
   const total = monthExp.reduce((s,e)=>s+e.amount,0);
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
@@ -354,7 +528,7 @@ function renderMonthTotal(){
 
 // Totales por categoría del mes actual (ordenados desc)
 function currentMonthByCategory(){
-  const monthExp = currentMonthExpenses();
+  const monthExp = applyGroupFilter(currentMonthExpenses());
   const totals = {};
   monthExp.forEach(e=>{ totals[e.category] = (totals[e.category]||0) + e.amount; });
   const grandTotal = Object.values(totals).reduce((a,b)=>a+b,0);
@@ -690,12 +864,21 @@ function initCdZoom(){
   if(cdSlotMax < cdSlotMin) cdSlotMax = cdSlotMin;
   cdSlotBase = Math.min(Math.max(base, cdSlotMin), cdSlotMax);
   setCdSlot(cdSlotBase);
-  // Siempre iniciar mostrando desde el día 1 (extremo izquierdo).
-  // Se fuerza en varios momentos porque el navegador puede reposicionar
-  // el scroll después del primer layout.
-  graph.scrollLeft = 0;
-  requestAnimationFrame(()=>{ graph.scrollLeft = 0; });
-  setTimeout(()=>{ graph.scrollLeft = 0; }, 120);
+  // Iniciar mostrando la barra del PRIMER día con gasto pegada al borde izquierdo
+  // (no el día 1). Se fuerza en varios momentos porque el navegador puede
+  // reposicionar el scroll después del primer layout.
+  scrollGraphToFirstDay();
+  requestAnimationFrame(scrollGraphToFirstDay);
+  setTimeout(scrollGraphToFirstDay, 120);
+}
+
+// Alinea el gráfico para que la primera barra (día más antiguo con gasto)
+// quede cerca del borde izquierdo del contenedor visible.
+function scrollGraphToFirstDay(){
+  const graph = document.getElementById('cdGraph');
+  if(!graph) return;
+  const firstCol = document.querySelector('#cdGraphInner .cd-vcol');
+  graph.scrollLeft = firstCol ? Math.max(0, firstCol.offsetLeft - 12) : 0;
 }
 let cdSlotBase = 46;
 
@@ -806,8 +989,9 @@ function applyCdAccent(catId){
   const page = document.getElementById('catDetailPage');
   const hex = categoryColorHex(catId);
   page.style.setProperty('--cd-accent', hex);
-  const dot = document.getElementById('cdColorDot');
-  if(dot) dot.style.background = hex;
+  // El engranaje de ajustes de la categoría se pinta con su color.
+  const gear = document.getElementById('cdGearIcon');
+  if(gear) gear.style.color = hex;
 }
 function renderCdColorSwatches(catId){
   const box = document.getElementById('cdColorSwatches');
@@ -983,6 +1167,7 @@ function renderMonths(){
 // Siempre inicia en 'default' al abrir la app (no se persiste).
 let feedSortMode = 'default';
 const feedOpenGroups = new Set(); // grupos expandidos en el modo por categoría
+let feedSearch = {text:'', min:null, max:null, from:'', to:''}; // filtros del buscador
 
 // Markup de una transacción del feed (compartido por ambos modos).
 function txHtml(e){
@@ -990,6 +1175,24 @@ function txHtml(e){
   const d = new Date(e.date);
   const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
   return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="edit" data-id="' + e.id + '" title="Editar">✏️</div><div class="del" data-id="' + e.id + '" title="Borrar">✕</div></div>';
+}
+
+// Filtra el feed según el buscador (nota/categoría, rango de monto, rango de fechas).
+function filterFeedExpenses(list){
+  const f = feedSearch;
+  const text = (f.text || '').trim().toLowerCase();
+  return list.filter(e=>{
+    if(text){
+      const note = (e.note || '').toLowerCase();
+      const catName = ((catById(e.category) || {name:''}).name || '').toLowerCase();
+      if(note.indexOf(text) === -1 && catName.indexOf(text) === -1) return false;
+    }
+    if(f.min != null && e.amount < f.min) return false;
+    if(f.max != null && e.amount > f.max) return false;
+    if(f.from && new Date(e.date) < new Date(f.from + 'T00:00:00')) return false;
+    if(f.to && new Date(e.date) > new Date(f.to + 'T23:59:59')) return false;
+    return true;
+  });
 }
 
 function renderFeed(){
@@ -1000,9 +1203,15 @@ function renderFeed(){
     return;
   }
 
+  const base = filterFeedExpenses(expenses);
+  if(base.length === 0){
+    feed.innerHTML = '<div class="empty">Ningún movimiento coincide con la búsqueda.</div>';
+    return;
+  }
+
   if(feedSortMode === 'category'){
-    // Agrupar por categoría (TODOS los gastos, sin límite), expandibles.
-    const sorted = [...expenses].sort((a,b)=> new Date(b.date) - new Date(a.date));
+    // Agrupar por categoría (TODOS los gastos filtrados, sin límite), expandibles.
+    const sorted = [...base].sort((a,b)=> new Date(b.date) - new Date(a.date));
     const groups = {};
     sorted.forEach(e=>{ (groups[e.category] = groups[e.category] || []).push(e); });
     const orderedIds = allCategories().map(c=>c.id).filter(id=>groups[id]);
@@ -1032,8 +1241,9 @@ function renderFeed(){
       });
     });
   } else {
-    // Predeterminado: orden de inserción real (lo último agregado, arriba), sin límite.
-    const ordered = [...expenses].reverse();
+    // Predeterminado: por fecha (más reciente arriba). "Más antiguo": fecha ascendente.
+    const ordered = [...base].sort((a,b)=> new Date(b.date) - new Date(a.date));
+    if(feedSortMode === 'oldest') ordered.reverse();
     feed.innerHTML = ordered.map(txHtml).join('');
   }
 
@@ -1042,6 +1252,7 @@ function renderFeed(){
     btn.onclick = (ev)=>{
       ev.stopPropagation();
       const id = btn.getAttribute('data-id');
+      if(!window.confirm('¿Seguro que quieres borrar este gasto?')) return;
       expenses = expenses.filter(e=>e.id !== id);
       saveExpenses();
       renderAll();
@@ -1078,6 +1289,23 @@ document.addEventListener('click', (e)=>{
   if(!e.target.closest('.feed-sort')) document.getElementById('feedSortMenu').classList.remove('open');
 });
 
+// Buscador y filtros de Movimientos.
+document.getElementById('feedSearchText').addEventListener('input', (e)=>{ feedSearch.text = e.target.value; renderFeed(); });
+document.getElementById('ffMin').addEventListener('input', (e)=>{ feedSearch.min = e.target.value !== '' ? parseFloat(e.target.value) : null; renderFeed(); });
+document.getElementById('ffMax').addEventListener('input', (e)=>{ feedSearch.max = e.target.value !== '' ? parseFloat(e.target.value) : null; renderFeed(); });
+document.getElementById('ffFrom').addEventListener('input', (e)=>{ feedSearch.from = e.target.value; renderFeed(); });
+document.getElementById('ffTo').addEventListener('input', (e)=>{ feedSearch.to = e.target.value; renderFeed(); });
+document.getElementById('feedFilterToggle').addEventListener('click', ()=>{
+  const open = document.getElementById('feedFilters').classList.toggle('open');
+  document.getElementById('feedFilterToggle').classList.toggle('active', open);
+});
+document.getElementById('ffClear').addEventListener('click', ()=>{
+  feedSearch = {text:'', min:null, max:null, from:'', to:''};
+  document.getElementById('feedSearchText').value = '';
+  ['ffMin','ffMax','ffFrom','ffTo'].forEach(id=>{ document.getElementById(id).value = ''; });
+  renderFeed();
+});
+
 // Salta desde un gasto individual (detalle de categoría) hasta esa
 // transacción en "Movimientos recientes", con highlight temporal.
 function jumpToExpense(id){
@@ -1099,6 +1327,10 @@ function jumpToExpense(id){
 /* ---------- Editar un gasto existente (página completa) ---------- */
 let editingId = null;
 let editSelectedCat = null;
+let editSelectedGroup = null;
+function renderEditGroupTag(){
+  renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroup, (g)=>{ editSelectedGroup = g; renderEditGroupTag(); });
+}
 
 function renderEditCats(){
   const grid = document.getElementById('editCatGrid');
@@ -1129,7 +1361,9 @@ function openEditExpense(id){
   const di = document.getElementById('editDate');
   di.value = localISO;
   di.max = new Date().toISOString().slice(0,10);
+  editSelectedGroup = e.group || null;
   renderEditCats();
+  renderEditGroupTag();
   validateEditForm();
   const page = document.getElementById('editPage');
   page.classList.add('open');
@@ -1154,6 +1388,7 @@ function saveEditExpense(){
   e.amount = amount;
   e.note = document.getElementById('editNote').value.trim();
   e.category = editSelectedCat;
+  if(editSelectedGroup) e.group = editSelectedGroup; else delete e.group;
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
@@ -1167,6 +1402,173 @@ function saveEditExpense(){
 
 document.getElementById('editBack').addEventListener('click', closeEditExpense);
 document.getElementById('editSaveBtn').addEventListener('click', saveEditExpense);
+document.getElementById('groupBack').addEventListener('click', closeGroupEditor);
+document.getElementById('groupSaveBtn').addEventListener('click', saveGroup);
+document.getElementById('groupDeleteBtn').addEventListener('click', deleteGroup);
+
+/* ---------- Gastos recurrentes (suscripciones/servicios fijos) ---------- */
+let recurring = [];        // [{id, name, amount, day, category, paid:{'YYYY-MM': expenseId|true}}]
+let recEditingId = null;
+let recSelCat = null;
+
+function loadRecurring(){
+  try{ recurring = JSON.parse(localStorage.getItem(RECURRING_KEY)) || []; }
+  catch(e){ recurring = []; }
+}
+function saveRecurring(){
+  try{ localStorage.setItem(RECURRING_KEY, JSON.stringify(recurring)); }catch(e){}
+}
+
+function openRecurringPage(){
+  showRecList();
+  renderRecurringList();
+  const page = document.getElementById('recurringPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+}
+function closeRecurringPage(){
+  const page = document.getElementById('recurringPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+}
+function showRecList(){
+  document.getElementById('recListWrap').style.display = '';
+  document.getElementById('recFormWrap').style.display = 'none';
+  document.getElementById('recTitle').textContent = 'Gastos recurrentes';
+}
+
+function renderRecurringList(){
+  const box = document.getElementById('recurringList');
+  const mk = monthKey(new Date());
+  if(recurring.length === 0){
+    box.innerHTML = '<div class="empty">Aún no tienes recurrentes. Crea uno con el botón de abajo.</div>';
+    return;
+  }
+  box.innerHTML = recurring.map(r=>{
+    const cat = catById(r.category) || {icon:'🗂️', name:'Otros'};
+    const paid = !!r.paid[mk];
+    return '<div class="rec-item" data-id="' + r.id + '">' +
+             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + '</div>' +
+               '<div class="rec-meta">S/ ' + fmt(r.amount) + ' · día ' + r.day + ' · ' + cat.name + '</div></div>' +
+             '<div class="rec-actions">' +
+               '<span class="rec-edit" data-id="' + r.id + '" title="Editar">✏️</span>' +
+               '<button class="rec-toggle' + (paid ? ' paid' : '') + '" data-id="' + r.id + '" type="button">' + (paid ? '✓ Pagado' : 'Pendiente') + '</button>' +
+             '</div>' +
+           '</div>';
+  }).join('');
+  box.querySelectorAll('.rec-toggle').forEach(b=>{
+    b.addEventListener('click', ()=> toggleRecurringPaid(b.getAttribute('data-id')));
+  });
+  box.querySelectorAll('.rec-edit').forEach(b=>{
+    b.addEventListener('click', ()=> openRecForm(b.getAttribute('data-id')));
+  });
+}
+
+function renderRecCatGrid(){
+  const grid = document.getElementById('recCatGrid');
+  grid.innerHTML = '';
+  allCategories().forEach(cat=>{
+    const btn = document.createElement('div');
+    btn.className = 'cat-btn' + (recSelCat === cat.id ? ' selected' : '');
+    btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
+    btn.onclick = ()=>{ recSelCat = cat.id; renderRecCatGrid(); };
+    grid.appendChild(btn);
+  });
+}
+
+function openRecForm(id){
+  recEditingId = id;
+  const r = id ? recurring.find(x=>x.id === id) : null;
+  document.getElementById('recTitle').textContent = r ? 'Editar recurrente' : 'Nuevo recurrente';
+  document.getElementById('recName').value = r ? r.name : '';
+  document.getElementById('recAmount').value = r ? r.amount : '';
+  document.getElementById('recDay').value = r ? r.day : '';
+  recSelCat = r ? r.category : null;
+  renderRecCatGrid();
+  document.getElementById('recDeleteBtn').style.display = r ? '' : 'none';
+  document.getElementById('recListWrap').style.display = 'none';
+  document.getElementById('recFormWrap').style.display = '';
+}
+
+function saveRecItem(){
+  const name = document.getElementById('recName').value.trim();
+  const amount = parseFloat(document.getElementById('recAmount').value);
+  let day = parseInt(document.getElementById('recDay').value, 10);
+  if(!name || !(amount > 0) || !recSelCat){ alert('Completa nombre, monto y categoría.'); return; }
+  if(!(day >= 1 && day <= 31)) day = 1;
+  if(recEditingId){
+    const r = recurring.find(x=>x.id === recEditingId);
+    if(r){ r.name = name; r.amount = amount; r.day = day; r.category = recSelCat; }
+  } else {
+    recurring.push({id:'rec_' + Date.now(), name:name, amount:amount, day:day, category:recSelCat, paid:{}});
+  }
+  saveRecurring();
+  showRecList();
+  renderRecurringList();
+}
+
+function deleteRecItem(){
+  if(!recEditingId) return;
+  if(!window.confirm('¿Eliminar este recurrente? (no borra los gastos ya registrados)')) return;
+  recurring = recurring.filter(x=>x.id !== recEditingId);
+  saveRecurring();
+  showRecList();
+  renderRecurringList();
+}
+
+function toggleRecurringPaid(id){
+  const r = recurring.find(x=>x.id === id);
+  if(!r) return;
+  const mk = monthKey(new Date());
+  if(r.paid[mk]){
+    // Estaba pagado -> volver a pendiente. Si había gasto registrado, ofrecer quitarlo.
+    const linked = r.paid[mk];
+    delete r.paid[mk];
+    saveRecurring();
+    if(typeof linked === 'string'){
+      if(window.confirm('¿Quitar también el gasto que se había registrado en tus movimientos?')){
+        expenses = expenses.filter(e=>e.id !== linked);
+        saveExpenses();
+        renderAll();
+      }
+    }
+    renderRecurringList();
+  } else {
+    // Marcar pagado; ofrecer registrarlo como gasto real.
+    const cat = catById(r.category) || {name:'Otros'};
+    const registrar = window.confirm('Marcaste "' + r.name + '" como pagado este mes.\n\n¿Registrarlo también como gasto real de S/ ' + fmt(r.amount) + ' en ' + cat.name + '?');
+    if(registrar){
+      const now = new Date();
+      const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const day = Math.min(r.day, dim);
+      const gasto = {
+        id: Date.now().toString(),
+        amount: r.amount,
+        category: r.category,
+        note: r.name,
+        date: new Date(now.getFullYear(), now.getMonth(), day, 12, 0, 0).toISOString()
+      };
+      expenses.push(gasto);
+      saveExpenses();
+      r.paid[mk] = gasto.id;
+      renderAll();
+    } else {
+      r.paid[mk] = true; // pagado sin registrar gasto
+    }
+    saveRecurring();
+    renderRecurringList();
+  }
+}
+
+document.getElementById('recurringBtn').addEventListener('click', openRecurringPage);
+document.getElementById('recBack').addEventListener('click', closeRecurringPage);
+document.getElementById('recurringAddBtn').addEventListener('click', ()=> openRecForm(null));
+document.getElementById('recSaveBtn').addEventListener('click', saveRecItem);
+document.getElementById('recDeleteBtn').addEventListener('click', deleteRecItem);
+document.getElementById('recCancelBtn').addEventListener('click', ()=>{ showRecList(); renderRecurringList(); });
 document.getElementById('editAmount').addEventListener('input', validateEditForm);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && document.getElementById('editPage').classList.contains('open')) closeEditExpense();
@@ -1197,6 +1599,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     note: note,
     date: resolveGastoDate()
   };
+  if(selectedGroupTag) gasto.group = selectedGroupTag;
   expenses.push(gasto);
 
   saveExpenses();
@@ -1205,6 +1608,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
   document.getElementById('noteInput').value = '';
   document.getElementById('dateInput').value = '';
   selectedCat = null;
+  selectedGroupTag = null;
   renderCats();
   validateForm();
   renderAll();
@@ -1225,5 +1629,7 @@ try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCategoryColors();
 loadCategoryBudgets();
+loadCatGroups();
+loadRecurring();
 renderCats();
 loadExpenses();
