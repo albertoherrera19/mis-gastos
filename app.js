@@ -44,6 +44,11 @@ const CAT_COLOR_KEY = 'timeless_category_colors';
 const BUDGET_KEY = 'timeless_category_budgets';
 const GROUPS_KEY = 'timeless_cat_groups';
 const RECURRING_KEY = 'timeless_recurring';
+const GENERAL_BUDGET_KEY = 'timeless_general_budget';
+const GROUP_BUDGET_KEY = 'timeless_group_budgets';
+const REMINDERS_KEY = 'timeless_reminders';
+const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
+const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = false;
@@ -54,7 +59,31 @@ const EYEBROW_DEFAULT = 'Timeless · Control personal';
 const NEUTRAL_THEMES = ['negro', 'blanco'];
 let lastAccentTheme = 'azul';
 
-function allCategories(){ return BASE_CATEGORIES.concat(customCategories); }
+let catOverrides = {};   // {catId: {name, icon}} — ediciones sobre categorías base o personalizadas
+let deletedBaseCats = []; // ids de BASE_CATEGORIES que el usuario eliminó en este dispositivo
+
+function loadCatOverrides(){
+  try{ catOverrides = JSON.parse(localStorage.getItem(CAT_OVERRIDE_KEY)) || {}; }
+  catch(e){ catOverrides = {}; }
+}
+function saveCatOverrides(){
+  try{ localStorage.setItem(CAT_OVERRIDE_KEY, JSON.stringify(catOverrides)); }catch(e){}
+}
+function loadDeletedBaseCats(){
+  try{ deletedBaseCats = JSON.parse(localStorage.getItem(DELETED_BASE_KEY)) || []; }
+  catch(e){ deletedBaseCats = []; }
+}
+function saveDeletedBaseCats(){
+  try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
+}
+
+function allCategories(){
+  const base = BASE_CATEGORIES.filter(c => deletedBaseCats.indexOf(c.id) === -1);
+  return base.concat(customCategories).map(c=>{
+    const ov = catOverrides[c.id];
+    return ov ? Object.assign({}, c, ov) : c;
+  });
+}
 function catById(id){ return allCategories().find(c=>c.id===id); }
 function fmt(n){ return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 
@@ -120,7 +149,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -232,6 +261,8 @@ function saveCustomCategories(){
   }catch(e){}
 }
 
+let catFormEditId = null; // null = modo crear categoría; id = editando esa categoría
+
 function renderCats(){
   const grid = document.getElementById('catGrid');
   grid.innerHTML = '';
@@ -243,32 +274,44 @@ function renderCats(){
     // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
     btn.onclick = ()=>{ selectedCat = (selectedCat === cat.id) ? null : cat.id; renderCats(); validateForm(); };
 
-    if(!cat.base){
-      const del = document.createElement('div');
-      del.className = 'cat-del';
-      del.textContent = '✕';
-      del.onclick = (ev)=>{
-        ev.stopPropagation();
-        // Confirmación antes de borrar; si tiene gastos, ofrecer moverlos a "Otros".
-        const catExpenses = expenses.filter(e=>e.category === cat.id);
-        if(catExpenses.length > 0){
-          const ok = window.confirm('⚠️ "' + cat.name + '" tiene ' + catExpenses.length + ' gasto(s) registrado(s).\n\nAceptar: eliminar la categoría y mover esos gastos a "Otros" (no se pierden).\nCancelar: no borrar nada.');
-          if(!ok) return;
-          expenses.forEach(e=>{ if(e.category === cat.id) e.category = 'otros'; });
-          saveExpenses();
-        } else {
-          const ok = window.confirm('¿Eliminar la categoría "' + cat.name + '"?');
-          if(!ok) return;
-        }
+    const edit = document.createElement('div');
+    edit.className = 'cat-edit';
+    edit.textContent = '✎';
+    edit.onclick = (ev)=>{ ev.stopPropagation(); openCatForm(cat); };
+    btn.appendChild(edit);
+
+    const del = document.createElement('div');
+    del.className = 'cat-del';
+    del.textContent = '✕';
+    del.onclick = (ev)=>{
+      ev.stopPropagation();
+      // "Otros" es el destino de respaldo para gastos reasignados: no se puede borrar.
+      if(cat.id === 'otros'){ alert('"Otros" no se puede eliminar: es la categoría de respaldo para gastos reasignados.'); return; }
+      // Confirmación antes de borrar; si tiene gastos, ofrecer moverlos a "Otros".
+      const catExpenses = expenses.filter(e=>e.category === cat.id);
+      if(catExpenses.length > 0){
+        const ok = window.confirm('⚠️ "' + cat.name + '" tiene ' + catExpenses.length + ' gasto(s) registrado(s).\n\nAceptar: eliminar la categoría y mover esos gastos a "Otros" (no se pierden).\nCancelar: no borrar nada.');
+        if(!ok) return;
+        expenses.forEach(e=>{ if(e.category === cat.id) e.category = 'otros'; });
+        saveExpenses();
+      } else {
+        const ok = window.confirm('¿Eliminar la categoría "' + cat.name + '"?');
+        if(!ok) return;
+      }
+      if(cat.base){
+        if(deletedBaseCats.indexOf(cat.id) === -1) deletedBaseCats.push(cat.id);
+        saveDeletedBaseCats();
+        if(catOverrides[cat.id]){ delete catOverrides[cat.id]; saveCatOverrides(); }
+      } else {
         customCategories = customCategories.filter(c=>c.id !== cat.id);
-        if(selectedCat === cat.id) selectedCat = null;
         saveCustomCategories();
-        renderCats();
-        validateForm();
-        renderAll(); // refleja los gastos movidos a "Otros"
-      };
-      btn.appendChild(del);
-    }
+      }
+      if(selectedCat === cat.id) selectedCat = null;
+      renderCats();
+      validateForm();
+      renderAll(); // refleja los gastos movidos a "Otros"
+    };
+    btn.appendChild(del);
 
     grid.appendChild(btn);
   });
@@ -276,36 +319,71 @@ function renderCats(){
   const addBtn = document.createElement('div');
   addBtn.className = 'cat-btn add-new';
   addBtn.innerHTML = '<span class="icon">➕</span>Nueva';
-  addBtn.onclick = ()=>{
-    document.getElementById('newCatForm').classList.add('open');
-    document.getElementById('newCatName').focus();
-  };
+  addBtn.onclick = ()=> openCatForm(null);
   grid.appendChild(addBtn);
 }
 
-document.getElementById('cancelNewCat').addEventListener('click', ()=>{
+function openCatForm(editCat){
+  const form = document.getElementById('newCatForm');
+  const nameInp = document.getElementById('newCatName');
+  const emojiInp = document.getElementById('newCatEmoji');
+  const confirmBtn = document.getElementById('confirmNewCat');
+  if(editCat){
+    catFormEditId = editCat.id;
+    nameInp.value = editCat.name;
+    emojiInp.value = editCat.icon;
+    confirmBtn.textContent = 'Guardar cambios';
+  } else {
+    catFormEditId = null;
+    nameInp.value = '';
+    emojiInp.value = '';
+    confirmBtn.textContent = 'Crear categoría';
+  }
+  form.classList.add('open');
+  nameInp.focus();
+}
+
+function closeCatForm(){
+  catFormEditId = null;
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
-});
+  document.getElementById('confirmNewCat').textContent = 'Crear categoría';
+}
+
+document.getElementById('cancelNewCat').addEventListener('click', closeCatForm);
 
 document.getElementById('confirmNewCat').addEventListener('click', ()=>{
   const name = document.getElementById('newCatName').value.trim();
   const emoji = document.getElementById('newCatEmoji').value.trim() || '🏷️';
   if(!name) return;
 
-  customCategories.push({
-    id: 'custom_' + Date.now(),
-    name: name,
-    icon: emoji,
-    base: false
-  });
+  if(catFormEditId){
+    const cat = allCategories().find(c=>c.id === catFormEditId);
+    if(cat && cat.base){
+      catOverrides[catFormEditId] = {name: name, icon: emoji};
+      saveCatOverrides();
+    } else {
+      const idx = customCategories.findIndex(c=>c.id === catFormEditId);
+      if(idx !== -1){
+        customCategories[idx].name = name;
+        customCategories[idx].icon = emoji;
+        saveCustomCategories();
+      }
+    }
+  } else {
+    customCategories.push({
+      id: 'custom_' + Date.now(),
+      name: name,
+      icon: emoji,
+      base: false
+    });
+    saveCustomCategories();
+  }
 
-  saveCustomCategories();
-  document.getElementById('newCatForm').classList.remove('open');
-  document.getElementById('newCatName').value = '';
-  document.getElementById('newCatEmoji').value = '';
+  closeCatForm();
   renderCats();
+  renderAll(); // refleja el nombre/ícono editado en otras vistas (donut, movimientos, etc.)
 });
 
 function validateForm(){
@@ -360,35 +438,54 @@ function activeGroupCats(){
   const g = catGroups.find(x=>x.id === activeGroup);
   return g ? g.cats : null;
 }
+// Ids de grupo etiquetados manualmente en un gasto (soporta el formato viejo
+// de un solo grupo `group` y el nuevo de varios `groups`, para compatibilidad).
+function expenseGroupIds(e){
+  if(Array.isArray(e.groups)) return e.groups;
+  if(e.group) return [e.group];
+  return [];
+}
+
 // Filtra una lista de gastos por el grupo activo: incluye los de categorías del
-// grupo Y los gastos individuales etiquetados manualmente con ese grupo.
+// grupo Y los gastos individuales etiquetados manualmente con ese grupo (un
+// gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
+// total general — solo afecta qué grupos lo incluyen en su vista filtrada).
 function applyGroupFilter(list){
   if(!activeGroup) return list;
   const g = catGroups.find(x=>x.id === activeGroup);
   const cats = g ? g.cats : [];
-  return list.filter(e=> cats.indexOf(e.category) !== -1 || e.group === activeGroup);
+  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(activeGroup) !== -1);
 }
 
-// Pills de "Grupo (opcional)" en un formulario (agregar/editar).
-function renderGroupTagOpts(optsId, rowId, current, onPick){
+// Pills de "Grupo (opcional)" en un formulario (agregar/editar). Multi-selección:
+// cada pill se alterna independientemente; "Ninguno" limpia toda la selección.
+function renderGroupTagOpts(optsId, rowId, current, onToggle){
   const row = document.getElementById(rowId);
   const box = document.getElementById(optsId);
   if(!row || !box) return;
   if(catGroups.length === 0){ row.classList.add('hidden'); box.innerHTML = ''; return; }
   row.classList.remove('hidden');
-  let html = '<div class="gt-opt' + (!current ? ' selected' : '') + '" data-g="">Ninguno</div>';
+  let html = '<div class="gt-opt' + (current.length === 0 ? ' selected' : '') + '" data-g="">Ninguno</div>';
   catGroups.forEach(g=>{
-    html += '<div class="gt-opt' + (current === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+    const sel = current.indexOf(g.id) !== -1;
+    html += '<div class="gt-opt' + (sel ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
   });
   box.innerHTML = html;
   box.querySelectorAll('.gt-opt').forEach(el=>{
-    el.onclick = ()=> onPick(el.getAttribute('data-g') || null);
+    el.onclick = ()=> onToggle(el.getAttribute('data-g') || null);
   });
 }
 
-let selectedGroupTag = null;   // etiqueta de grupo del formulario de agregar
+let selectedGroupTags = [];   // ids de grupo del formulario de agregar (varios permitidos)
 function renderAddGroupTag(){
-  renderGroupTagOpts('groupTagOpts', 'groupTagRow', selectedGroupTag, (g)=>{ selectedGroupTag = g; renderAddGroupTag(); });
+  renderGroupTagOpts('groupTagOpts', 'groupTagRow', selectedGroupTags, (g)=>{
+    if(!g){ selectedGroupTags = []; }
+    else{
+      const i = selectedGroupTags.indexOf(g);
+      if(i === -1) selectedGroupTags.push(g); else selectedGroupTags.splice(i,1);
+    }
+    renderAddGroupTag();
+  });
 }
 
 // Pestañas de grupos + link de editar el grupo activo.
@@ -524,6 +621,8 @@ function renderMonthTotal(){
   }
   const monthName = new Date().toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
+  renderMtBudgetPanel();
+  renderMtBudgetBar(total);
 }
 
 // Totales por categoría del mes actual (ordenados desc)
@@ -714,13 +813,113 @@ let cdSlotMax = 84;         // zoom máximo
 let cdBarW = 34;            // ancho de barra actual (px) — fijo, solo cambia con zoom
 let cdActiveIndex = -1;     // barra con tooltip visible
 let cdCatId = null;         // categoría abierta actualmente
+let cdYear = null;
+let cdMonth = null;
+let cdListSort = 'oldest';  // orden de "Días con gasto": oldest|recent|amountAsc|amountDesc
+
+// `cdDays` siempre queda en orden cronológico ascendente (lo necesita el
+// gráfico de barras, alineado a los días reales del mes). Esta función solo
+// reordena una COPIA para la lista "Días con gasto".
+function sortedCdDays(){
+  const arr = cdDays.slice();
+  if(cdListSort === 'recent') return arr.reverse();
+  if(cdListSort === 'amountAsc') return arr.sort((a,b)=> a.total - b.total);
+  if(cdListSort === 'amountDesc') return arr.sort((a,b)=> b.total - a.total);
+  return arr; // 'oldest' (por defecto): ya viene ascendente
+}
+
+// Dibuja la lista "Días con gasto" (expandible) según cdListSort actual.
+function renderCdList(){
+  let listHtml = '';
+  sortedCdDays().forEach(x=>{
+    const dayItems = expenses.filter(e=>{
+      if(e.category !== cdCatId) return false;
+      const d = new Date(e.date);
+      return d.getFullYear()===cdYear && d.getMonth()===cdMonth && d.getDate()===x.day;
+    }).sort((a,b)=> new Date(a.date) - new Date(b.date));
+
+    let itemsHtml = '';
+    dayItems.forEach(it=>{
+      const note = (it.note && it.note.trim()) ? it.note : 'Sin nota';
+      itemsHtml +=
+        '<div class="cd-li-item" data-eid="' + it.id + '">' +
+          '<span class="cd-li-note">' + note + '</span>' +
+          '<span class="cd-li-iamt">S/ ' + fmt(it.amount) + '</span>' +
+          '<span class="cd-li-edit" data-eid="' + it.id + '" title="Editar">✏️</span>' +
+        '</div>';
+    });
+
+    listHtml +=
+      '<div class="cd-li-wrap">' +
+        '<div class="cd-li" role="button" tabindex="0">' +
+          '<span class="cd-li-date">' + x.label + '</span>' +
+          '<span class="cd-li-r">' +
+            '<span class="cd-li-amt">S/ ' + fmt(x.total) + '</span>' +
+            '<span class="cd-li-caret">▼</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="cd-li-detail">' + itemsHtml + '</div>' +
+      '</div>';
+  });
+  if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
+  const cdListEl = document.getElementById('cdList');
+  cdListEl.innerHTML = listHtml;
+  // Expandir/colapsar cada fila de forma independiente (varias abiertas a la vez).
+  cdListEl.querySelectorAll('.cd-li-wrap').forEach(wrap=>{
+    const head = wrap.querySelector('.cd-li');
+    head.addEventListener('click', ()=> wrap.classList.toggle('open'));
+    head.addEventListener('keydown', (ev)=>{
+      if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); wrap.classList.toggle('open'); }
+    });
+  });
+  // Tocar un gasto individual -> ir a esa transacción en "Movimientos recientes".
+  cdListEl.querySelectorAll('.cd-li-item').forEach(item=>{
+    item.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      jumpToExpense(item.getAttribute('data-eid'));
+    });
+  });
+  // Lápiz -> editar ese gasto (página completa).
+  cdListEl.querySelectorAll('.cd-li-edit').forEach(p=>{
+    p.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      openEditExpense(p.getAttribute('data-eid'));
+    });
+  });
+}
+
+document.getElementById('cdListSortBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  document.getElementById('cdListSortMenu').classList.toggle('open');
+});
+document.querySelectorAll('#cdListSortMenu .fs-opt').forEach(opt=>{
+  opt.addEventListener('click', ()=>{
+    cdListSort = opt.getAttribute('data-mode');
+    document.querySelectorAll('#cdListSortMenu .fs-opt').forEach(o=>{
+      o.classList.toggle('active', o === opt);
+    });
+    document.getElementById('cdListSortMenu').classList.remove('open');
+    renderCdList();
+  });
+});
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest('#cdListSortWrap')) document.getElementById('cdListSortMenu').classList.remove('open');
+});
 
 function openCategoryDetail(catId){
   const cat = catById(catId) || {id:catId, icon:'🗂️', name:'Otros'};
   const {totals, daysInMonth, year, month} = dailyTotalsForCategory(catId);
   const monthTotal = totals.reduce((a,b)=>a+b, 0);
   cdCatId = catId;
+  cdYear = year;
+  cdMonth = month;
   cdDaysInMonth = daysInMonth;
+  // El orden de "Días con gasto" no se persiste: cada vez que se abre una
+  // categoría vuelve al orden por defecto (más antiguo primero).
+  cdListSort = 'oldest';
+  document.querySelectorAll('#cdListSortMenu .fs-opt').forEach(o=>{
+    o.classList.toggle('active', o.getAttribute('data-mode') === 'oldest');
+  });
 
   document.getElementById('cdIcon').textContent = cat.icon;
   document.getElementById('cdName').textContent = cat.name;
@@ -776,62 +975,7 @@ function openCategoryDetail(catId){
   }
 
   // Lista de días con gasto: cada fila se puede expandir para ver sus gastos.
-  let listHtml = '';
-  cdDays.forEach(x=>{
-    const dayItems = expenses.filter(e=>{
-      if(e.category !== catId) return false;
-      const d = new Date(e.date);
-      return d.getFullYear()===year && d.getMonth()===month && d.getDate()===x.day;
-    }).sort((a,b)=> new Date(a.date) - new Date(b.date));
-
-    let itemsHtml = '';
-    dayItems.forEach(it=>{
-      const note = (it.note && it.note.trim()) ? it.note : 'Sin nota';
-      itemsHtml +=
-        '<div class="cd-li-item" data-eid="' + it.id + '">' +
-          '<span class="cd-li-note">' + note + '</span>' +
-          '<span class="cd-li-iamt">S/ ' + fmt(it.amount) + '</span>' +
-          '<span class="cd-li-edit" data-eid="' + it.id + '" title="Editar">✏️</span>' +
-        '</div>';
-    });
-
-    listHtml +=
-      '<div class="cd-li-wrap">' +
-        '<div class="cd-li" role="button" tabindex="0">' +
-          '<span class="cd-li-date">' + x.label + '</span>' +
-          '<span class="cd-li-r">' +
-            '<span class="cd-li-amt">S/ ' + fmt(x.total) + '</span>' +
-            '<span class="cd-li-caret">▼</span>' +
-          '</span>' +
-        '</div>' +
-        '<div class="cd-li-detail">' + itemsHtml + '</div>' +
-      '</div>';
-  });
-  if(!listHtml){ listHtml = '<div class="empty">Sin gastos en esta categoría este mes.</div>'; }
-  const cdListEl = document.getElementById('cdList');
-  cdListEl.innerHTML = listHtml;
-  // Expandir/colapsar cada fila de forma independiente (varias abiertas a la vez).
-  cdListEl.querySelectorAll('.cd-li-wrap').forEach(wrap=>{
-    const head = wrap.querySelector('.cd-li');
-    head.addEventListener('click', ()=> wrap.classList.toggle('open'));
-    head.addEventListener('keydown', (ev)=>{
-      if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); wrap.classList.toggle('open'); }
-    });
-  });
-  // Tocar un gasto individual -> ir a esa transacción en "Movimientos recientes".
-  cdListEl.querySelectorAll('.cd-li-item').forEach(item=>{
-    item.addEventListener('click', (ev)=>{
-      ev.stopPropagation();
-      jumpToExpense(item.getAttribute('data-eid'));
-    });
-  });
-  // Lápiz -> editar ese gasto (página completa).
-  cdListEl.querySelectorAll('.cd-li-edit').forEach(p=>{
-    p.addEventListener('click', (ev)=>{
-      ev.stopPropagation();
-      openEditExpense(p.getAttribute('data-eid'));
-    });
-  });
+  renderCdList();
 
   // Color propio de la categoría (o acento del tema si no tiene).
   applyCdAccent(catId);
@@ -951,6 +1095,98 @@ function loadCategoryBudgets(){
 function saveCategoryBudgets(){
   try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
 }
+
+/* ----- Presupuesto general del mes y por grupo (opcional) ----- */
+let generalBudget = null;   // número o null
+let groupBudgets = {};      // { groupId: monto }
+
+function loadGeneralBudget(){
+  const v = parseFloat(localStorage.getItem(GENERAL_BUDGET_KEY));
+  generalBudget = (v > 0) ? v : null;
+}
+function saveGeneralBudget(){
+  try{
+    if(generalBudget > 0) localStorage.setItem(GENERAL_BUDGET_KEY, String(generalBudget));
+    else localStorage.removeItem(GENERAL_BUDGET_KEY);
+  }catch(e){}
+}
+function loadGroupBudgets(){
+  try{ groupBudgets = JSON.parse(localStorage.getItem(GROUP_BUDGET_KEY)) || {}; }
+  catch(e){ groupBudgets = {}; }
+}
+function saveGroupBudgets(){
+  try{ localStorage.setItem(GROUP_BUDGET_KEY, JSON.stringify(groupBudgets)); }catch(e){}
+}
+// El presupuesto que aplica según la pestaña activa: general (Predeterminado)
+// o el del grupo activo.
+function currentBudgetContext(){
+  if(activeGroup){
+    const g = catGroups.find(x=>x.id === activeGroup);
+    return {isGroup:true, key:activeGroup, label: g ? g.name : 'grupo'};
+  }
+  return {isGroup:false, key:null, label:'general'};
+}
+function currentBudgetValue(){
+  const ctx = currentBudgetContext();
+  return ctx.isGroup ? (groupBudgets[ctx.key] || null) : generalBudget;
+}
+function setCurrentBudgetValue(v){
+  const ctx = currentBudgetContext();
+  if(ctx.isGroup){
+    if(v > 0) groupBudgets[ctx.key] = v; else delete groupBudgets[ctx.key];
+    saveGroupBudgets();
+  } else {
+    generalBudget = (v > 0) ? v : null;
+    saveGeneralBudget();
+  }
+}
+// Sincroniza el título/valor del panel con el contexto actual (general o grupo).
+function renderMtBudgetPanel(){
+  const ctx = currentBudgetContext();
+  const title = document.getElementById('mtBudgetTitle');
+  const input = document.getElementById('mtBudgetInput');
+  if(title) title.textContent = ctx.isGroup ? ('Presupuesto de "' + ctx.label + '" (opcional)') : 'Presupuesto general (opcional)';
+  if(input) input.value = currentBudgetValue() || '';
+}
+// Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
+// la barra de presupuesto por categoría).
+function renderMtBudgetBar(spent){
+  const bar = document.getElementById('mtBudgetBar');
+  if(!bar) return;
+  const limit = currentBudgetValue();
+  if(!(limit > 0)){
+    bar.classList.remove('show');
+    bar.innerHTML = '';
+    return;
+  }
+  const pct = spent / limit * 100;
+  const clamped = Math.min(pct, 100);
+  let state = '';
+  if(pct >= 100) state = 'over';
+  else if(pct >= 80) state = 'warn';
+  const statusTxt = pct >= 100
+    ? 'Superado (' + Math.round(pct) + '%)'
+    : Math.round(pct) + '%';
+  bar.className = 'cd-budget-bar show ' + state;
+  bar.innerHTML =
+    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+    '<span class="bb-status">' + statusTxt + '</span></div>' +
+    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+}
+document.getElementById('mtBudgetBtn').addEventListener('click', ()=>{
+  document.getElementById('mtBudgetPanel').classList.toggle('open');
+});
+document.getElementById('mtBudgetSave').addEventListener('click', ()=>{
+  const v = parseFloat(document.getElementById('mtBudgetInput').value);
+  setCurrentBudgetValue(v > 0 ? v : null);
+  document.getElementById('mtBudgetPanel').classList.remove('open');
+  renderMonthTotal();
+});
+document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
+  setCurrentBudgetValue(null);
+  document.getElementById('mtBudgetInput').value = '';
+  renderMonthTotal();
+});
 
 // Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
 function renderBudgetBar(catId, spent){
@@ -1327,9 +1563,16 @@ function jumpToExpense(id){
 /* ---------- Editar un gasto existente (página completa) ---------- */
 let editingId = null;
 let editSelectedCat = null;
-let editSelectedGroup = null;
+let editSelectedGroups = [];
 function renderEditGroupTag(){
-  renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroup, (g)=>{ editSelectedGroup = g; renderEditGroupTag(); });
+  renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroups, (g)=>{
+    if(!g){ editSelectedGroups = []; }
+    else{
+      const i = editSelectedGroups.indexOf(g);
+      if(i === -1) editSelectedGroups.push(g); else editSelectedGroups.splice(i,1);
+    }
+    renderEditGroupTag();
+  });
 }
 
 function renderEditCats(){
@@ -1361,7 +1604,7 @@ function openEditExpense(id){
   const di = document.getElementById('editDate');
   di.value = localISO;
   di.max = new Date().toISOString().slice(0,10);
-  editSelectedGroup = e.group || null;
+  editSelectedGroups = expenseGroupIds(e);
   renderEditCats();
   renderEditGroupTag();
   validateEditForm();
@@ -1388,7 +1631,8 @@ function saveEditExpense(){
   e.amount = amount;
   e.note = document.getElementById('editNote').value.trim();
   e.category = editSelectedCat;
-  if(editSelectedGroup) e.group = editSelectedGroup; else delete e.group;
+  delete e.group; // formato viejo (un solo grupo), reemplazado por `groups`
+  if(editSelectedGroups.length) e.groups = editSelectedGroups.slice(); else delete e.groups;
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
@@ -1420,6 +1664,13 @@ function saveRecurring(){
 }
 
 function openRecurringPage(){
+  // Siempre abre en la pestaña "Fijos".
+  document.querySelectorAll('#recSubtabs .cg-tab').forEach(b=>b.classList.remove('active'));
+  const fixedTab = document.querySelector('#recSubtabs .cg-tab[data-tab="fixed"]');
+  if(fixedTab) fixedTab.classList.add('active');
+  document.getElementById('recFixedSection').style.display = '';
+  document.getElementById('remSection').style.display = 'none';
+  document.getElementById('recTitle').textContent = 'Gastos fijos';
   showRecList();
   renderRecurringList();
   const page = document.getElementById('recurringPage');
@@ -1437,7 +1688,7 @@ function closeRecurringPage(){
 function showRecList(){
   document.getElementById('recListWrap').style.display = '';
   document.getElementById('recFormWrap').style.display = 'none';
-  document.getElementById('recTitle').textContent = 'Gastos recurrentes';
+  document.getElementById('recTitle').textContent = 'Gastos fijos';
 }
 
 function renderRecurringList(){
@@ -1563,12 +1814,172 @@ function toggleRecurringPaid(id){
   }
 }
 
+/* ---------- Gastos recurrentes (monto variable, ej: pelo/skincare) ----------
+   Viven en la misma página que los gastos fijos (🔁), en la pestaña "Recurrentes".
+   A diferencia de los gastos fijos, no tienen monto ni día: al marcar
+   "Hecho" se abre el formulario de "Agregar gasto" con la categoría ya puesta
+   para que el usuario escriba el monto real de esa vez. */
+let reminders = [];            // [{id, name, category, done:{'YYYY-MM': expenseId|true}}]
+let remEditingId = null;
+let remSelCat = null;
+let pendingReminderId = null;  // recordatorio que se está registrando como gasto ahora
+
+function loadReminders(){
+  try{ reminders = JSON.parse(localStorage.getItem(REMINDERS_KEY)) || []; }
+  catch(e){ reminders = []; }
+}
+function saveReminders(){
+  try{ localStorage.setItem(REMINDERS_KEY, JSON.stringify(reminders)); }catch(e){}
+}
+
+function renderRemindersList(){
+  const box = document.getElementById('remindersList');
+  if(!box) return;
+  const mk = monthKey(new Date());
+  if(reminders.length === 0){
+    box.innerHTML = '<div class="empty">Aún no tienes recordatorios. Crea uno con el botón de abajo.</div>';
+    return;
+  }
+  box.innerHTML = reminders.map(r=>{
+    const cat = catById(r.category) || {icon:'🗂️', name:'Otros'};
+    const done = !!r.done[mk];
+    return '<div class="rec-item" data-id="' + r.id + '">' +
+             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + '</div>' +
+               '<div class="rec-meta">' + cat.name + '</div></div>' +
+             '<div class="rec-actions">' +
+               '<span class="rec-edit" data-id="' + r.id + '" title="Editar">✏️</span>' +
+               '<button class="rec-toggle' + (done ? ' paid' : '') + '" data-id="' + r.id + '" type="button">' + (done ? '✓ Hecho' : 'Pendiente') + '</button>' +
+             '</div>' +
+           '</div>';
+  }).join('');
+  box.querySelectorAll('.rec-toggle').forEach(b=>{
+    b.addEventListener('click', ()=> toggleReminderDone(b.getAttribute('data-id')));
+  });
+  box.querySelectorAll('.rec-edit').forEach(b=>{
+    b.addEventListener('click', ()=> openRemForm(b.getAttribute('data-id')));
+  });
+}
+
+function renderRemCatGrid(){
+  const grid = document.getElementById('remCatGrid');
+  grid.innerHTML = '';
+  allCategories().forEach(cat=>{
+    const btn = document.createElement('div');
+    btn.className = 'cat-btn' + (remSelCat === cat.id ? ' selected' : '');
+    btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
+    btn.onclick = ()=>{ remSelCat = cat.id; renderRemCatGrid(); };
+    grid.appendChild(btn);
+  });
+}
+
+function showRemList(){
+  document.getElementById('remListWrap').style.display = '';
+  document.getElementById('remFormWrap').style.display = 'none';
+}
+
+function openRemForm(id){
+  remEditingId = id;
+  const r = id ? reminders.find(x=>x.id === id) : null;
+  document.getElementById('remName').value = r ? r.name : '';
+  remSelCat = r ? r.category : null;
+  renderRemCatGrid();
+  document.getElementById('remDeleteBtn').style.display = r ? '' : 'none';
+  document.getElementById('remListWrap').style.display = 'none';
+  document.getElementById('remFormWrap').style.display = '';
+}
+
+function saveRemItem(){
+  const name = document.getElementById('remName').value.trim();
+  if(!name || !remSelCat){ alert('Completa nombre y categoría.'); return; }
+  if(remEditingId){
+    const r = reminders.find(x=>x.id === remEditingId);
+    if(r){ r.name = name; r.category = remSelCat; }
+  } else {
+    reminders.push({id:'rem_' + Date.now(), name:name, category:remSelCat, done:{}});
+  }
+  saveReminders();
+  showRemList();
+  renderRemindersList();
+}
+
+function deleteRemItem(){
+  if(!remEditingId) return;
+  if(!window.confirm('¿Eliminar este recordatorio? (no borra los gastos ya registrados)')) return;
+  reminders = reminders.filter(x=>x.id !== remEditingId);
+  saveReminders();
+  showRemList();
+  renderRemindersList();
+}
+
+function showRemPendingBanner(name){
+  const b = document.getElementById('remPendingBanner');
+  if(!b) return;
+  document.getElementById('remPendingText').textContent = '🔔 Registrando: ' + name;
+  b.style.display = '';
+}
+function hideRemPendingBanner(){
+  const b = document.getElementById('remPendingBanner');
+  if(b) b.style.display = 'none';
+}
+document.getElementById('remPendingCancel').addEventListener('click', ()=>{
+  pendingReminderId = null;
+  hideRemPendingBanner();
+});
+
+function toggleReminderDone(id){
+  const r = reminders.find(x=>x.id === id);
+  if(!r) return;
+  const mk = monthKey(new Date());
+  if(r.done[mk]){
+    // Estaba hecho -> volver a pendiente. Si había gasto registrado, ofrecer quitarlo.
+    const linked = r.done[mk];
+    delete r.done[mk];
+    saveReminders();
+    if(typeof linked === 'string'){
+      if(window.confirm('¿Quitar también el gasto que se había registrado en tus movimientos?')){
+        expenses = expenses.filter(e=>e.id !== linked);
+        saveExpenses();
+        renderAll();
+      }
+    }
+    renderRemindersList();
+  } else {
+    // Monto variable: llevar al formulario de "Agregar gasto" con la categoría
+    // ya puesta, para que el usuario escriba el monto real de esta vez.
+    pendingReminderId = id;
+    closeRecurringPage();
+    selectedCat = r.category;
+    document.getElementById('noteInput').value = r.name;
+    renderCats();
+    validateForm();
+    showRemPendingBanner(r.name);
+    window.scrollTo({top:0, behavior:'smooth'});
+    document.getElementById('amountInput').focus();
+  }
+}
+
 document.getElementById('recurringBtn').addEventListener('click', openRecurringPage);
 document.getElementById('recBack').addEventListener('click', closeRecurringPage);
 document.getElementById('recurringAddBtn').addEventListener('click', ()=> openRecForm(null));
 document.getElementById('recSaveBtn').addEventListener('click', saveRecItem);
 document.getElementById('recDeleteBtn').addEventListener('click', deleteRecItem);
 document.getElementById('recCancelBtn').addEventListener('click', ()=>{ showRecList(); renderRecurringList(); });
+document.getElementById('remAddBtn').addEventListener('click', ()=> openRemForm(null));
+document.getElementById('remSaveBtn').addEventListener('click', saveRemItem);
+document.getElementById('remDeleteBtn').addEventListener('click', deleteRemItem);
+document.getElementById('remCancelBtn').addEventListener('click', ()=>{ showRemList(); renderRemindersList(); });
+document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#recSubtabs .cg-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.getAttribute('data-tab');
+    document.getElementById('recFixedSection').style.display = tab === 'fixed' ? '' : 'none';
+    document.getElementById('remSection').style.display = tab === 'reminders' ? '' : 'none';
+    document.getElementById('recTitle').textContent = tab === 'fixed' ? 'Gastos fijos' : 'Gastos recurrentes';
+    if(tab === 'fixed'){ showRecList(); renderRecurringList(); }
+    else{ showRemList(); renderRemindersList(); }
+  });
+});
 document.getElementById('editAmount').addEventListener('input', validateEditForm);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && document.getElementById('editPage').classList.contains('open')) closeEditExpense();
@@ -1599,16 +2010,23 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     note: note,
     date: resolveGastoDate()
   };
-  if(selectedGroupTag) gasto.group = selectedGroupTag;
+  if(selectedGroupTags.length) gasto.groups = selectedGroupTags.slice();
   expenses.push(gasto);
 
   saveExpenses();
+
+  if(pendingReminderId){
+    const r = reminders.find(x=>x.id === pendingReminderId);
+    if(r){ r.done[monthKey(new Date())] = gasto.id; saveReminders(); }
+    pendingReminderId = null;
+    hideRemPendingBanner();
+  }
 
   document.getElementById('amountInput').value = '';
   document.getElementById('noteInput').value = '';
   document.getElementById('dateInput').value = '';
   selectedCat = null;
-  selectedGroupTag = null;
+  selectedGroupTags = [];
   renderCats();
   validateForm();
   renderAll();
@@ -1627,9 +2045,14 @@ if(!THEMES[lastAccentTheme] || NEUTRAL_THEMES.indexOf(lastAccentTheme) !== -1){ 
 initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
+loadCatOverrides();
+loadDeletedBaseCats();
 loadCategoryColors();
 loadCategoryBudgets();
+loadGeneralBudget();
+loadGroupBudgets();
 loadCatGroups();
 loadRecurring();
+loadReminders();
 renderCats();
 loadExpenses();

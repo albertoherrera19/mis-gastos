@@ -1,14 +1,19 @@
 // Service worker básico: cachea los archivos para uso offline tras la primera visita.
 const CACHE_PREFIX = 'mis-gastos-timeless-';
-const CACHE = CACHE_PREFIX + 'v20';
+const CACHE = CACHE_PREFIX + 'v21';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/maskable-192.png',
+  './icons/maskable-512.png',
+  './icons/apple-touch-icon-180.png',
+  './icons/favicon-32.png',
+  './icons/favicon-16.png'
 ];
 
 // Permite que la página fuerce la activación inmediata de una versión nueva.
