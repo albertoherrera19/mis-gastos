@@ -262,17 +262,25 @@ function saveCustomCategories(){
 }
 
 let catFormEditId = null; // null = modo crear categoría; id = editando esa categoría
+let catsEditMode = false; // true = muestra ✎/✕ en cada categoría (evita ruido/misclicks al agregar gastos)
 
 function renderCats(){
   const grid = document.getElementById('catGrid');
   grid.innerHTML = '';
+  grid.classList.toggle('editing', catsEditMode);
 
   allCategories().forEach(cat=>{
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (selectedCat===cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
     // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
-    btn.onclick = ()=>{ selectedCat = (selectedCat === cat.id) ? null : cat.id; renderCats(); validateForm(); };
+    // Deshabilitado mientras se editan categorías, para no mezclar "elegir categoría del gasto" con "gestionar categorías".
+    btn.onclick = ()=>{
+      if(catsEditMode) return;
+      selectedCat = (selectedCat === cat.id) ? null : cat.id;
+      renderCats();
+      validateForm();
+    };
 
     const edit = document.createElement('div');
     edit.className = 'cat-edit';
@@ -321,7 +329,16 @@ function renderCats(){
   addBtn.innerHTML = '<span class="icon">➕</span>Nueva';
   addBtn.onclick = ()=> openCatForm(null);
   grid.appendChild(addBtn);
+
+  const toggleBtn = document.getElementById('catsEditToggle');
+  toggleBtn.textContent = catsEditMode ? '✓ Listo' : '✎ Editar';
+  toggleBtn.classList.toggle('active', catsEditMode);
 }
+
+document.getElementById('catsEditToggle').addEventListener('click', ()=>{
+  catsEditMode = !catsEditMode;
+  renderCats();
+});
 
 function openCatForm(editCat){
   const form = document.getElementById('newCatForm');

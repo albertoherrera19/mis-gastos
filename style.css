@@ -230,6 +230,35 @@ input[type="text"]::placeholder{color:var(--muted);}
 .date-input:focus{border-color:var(--accent);}
 .date-input::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer;}
 
+.cats-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:8px;
+}
+.cats-header-label{
+  font-size:11px;
+  font-weight:700;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.cats-edit-toggle{
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+  font-weight:700;
+  padding:6px 10px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.cats-edit-toggle.active{
+  background:var(--accent-dim);
+  border-color:var(--accent);
+  color:var(--bone);
+}
+
 .cats{
   display:grid;
   grid-template-columns:repeat(4,1fr);
@@ -277,7 +306,7 @@ input[type="text"]::placeholder{color:var(--muted);}
   font-size:10px;
   line-height:1;
   cursor:pointer;
-  display:flex;
+  display:none;
   align-items:center;
   justify-content:center;
   z-index:2;
@@ -295,10 +324,14 @@ input[type="text"]::placeholder{color:var(--muted);}
   font-size:9px;
   line-height:1;
   cursor:pointer;
-  display:flex;
+  display:none;
   align-items:center;
   justify-content:center;
   z-index:2;
+}
+.cats.editing .cat-del,
+.cats.editing .cat-edit{
+  display:flex;
 }
 
 .new-cat-form{
