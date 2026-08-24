@@ -1,7 +1,5 @@
 const BASE_CATEGORIES = [
-  {id:'inversion', name:'Inversión', icon:'📈', base:true},
   {id:'pasajes',   name:'Pasajes',   icon:'🚌', base:true},
-  {id:'ads',       name:'Ads',       icon:'📣', base:true},
   {id:'salidas',   name:'Salidas',   icon:'🎉', base:true},
   {id:'comida',    name:'Comida',    icon:'🍔', base:true},
   {id:'servicios', name:'Servicios', icon:'💡', base:true},
@@ -36,6 +34,8 @@ let expenses = [];
 let customCategories = [];
 let selectedCat = null;
 let activeDonutCat = null;
+let viewYear = new Date().getFullYear();  // mes que se está viendo en la pantalla principal
+let viewMonth = new Date().getMonth();    // (no siempre es el mes real de hoy: se puede navegar)
 const STORAGE_KEY = 'timeless_expenses_log';
 const THEME_KEY = 'timeless_expenses_theme';
 const CUSTOM_CAT_KEY = 'timeless_custom_categories';
@@ -49,8 +49,14 @@ const GROUP_BUDGET_KEY = 'timeless_group_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
+const CAT_ORDER_KEY = 'timeless_cat_order'; // orden personalizado de la grilla de categorías (ids)
+const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
+const CASHBACK_KEY = 'timeless_cashback';
+const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
+const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables" para el simulador de ahorro
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
-// (En el repo de amigos este flag va en false — diferencia intencional.)
+// (En el repo de amigos este flag va en false — diferencia intencional:
+// no se pre-crea ningún grupo, el usuario los crea si quiere.)
 const PRECREATE_GROUPS = false;
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
@@ -77,12 +83,41 @@ function saveDeletedBaseCats(){
   try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
 }
 
+let catOrder = []; // ids en el orden que el usuario acomodó (arrastrando en modo Editar)
+function loadCatOrder(){
+  try{ catOrder = JSON.parse(localStorage.getItem(CAT_ORDER_KEY)) || []; }
+  catch(e){ catOrder = []; }
+}
+function saveCatOrder(){
+  try{ localStorage.setItem(CAT_ORDER_KEY, JSON.stringify(catOrder)); }catch(e){}
+}
+
+let showCatCompare = false; // oculto por defecto; el botón 📊 activa los indicadores ▲/▼ vs. mes anterior
+function loadShowCatCompare(){
+  try{ showCatCompare = localStorage.getItem(SHOW_CAT_COMPARE_KEY) === '1'; }
+  catch(e){ showCatCompare = false; }
+}
+function saveShowCatCompare(){
+  try{ localStorage.setItem(SHOW_CAT_COMPARE_KEY, showCatCompare ? '1' : '0'); }catch(e){}
+}
+
 function allCategories(){
   const base = BASE_CATEGORIES.filter(c => deletedBaseCats.indexOf(c.id) === -1);
-  return base.concat(customCategories).map(c=>{
+  const list = base.concat(customCategories).map(c=>{
     const ov = catOverrides[c.id];
     return ov ? Object.assign({}, c, ov) : c;
   });
+  // Aplica el orden personalizado si existe; lo que no esté en catOrder queda al
+  // final en su orden natural (Array.sort es estable). Así categorías nuevas
+  // aparecen al final hasta que las muevas.
+  if(catOrder.length){
+    list.sort((a,b)=>{
+      let ia = catOrder.indexOf(a.id); if(ia === -1) ia = Infinity;
+      let ib = catOrder.indexOf(b.id); if(ib === -1) ib = Infinity;
+      return ia - ib;
+    });
+  }
+  return list;
 }
 function catById(id){ return allCategories().find(c=>c.id===id); }
 function fmt(n){ return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -149,7 +184,8 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY];
+// No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY];
 
 function exportBackup(){
   const data = {};
@@ -272,6 +308,7 @@ function renderCats(){
   allCategories().forEach(cat=>{
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (selectedCat===cat.id ? ' selected' : '');
+    btn.dataset.id = cat.id;
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
     // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
     // Deshabilitado mientras se editan categorías, para no mezclar "elegir categoría del gasto" con "gestionar categorías".
@@ -321,6 +358,7 @@ function renderCats(){
     };
     btn.appendChild(del);
 
+    if(catsEditMode) attachCatDrag(btn, cat.id);
     grid.appendChild(btn);
   });
 
@@ -333,7 +371,148 @@ function renderCats(){
   const toggleBtn = document.getElementById('catsEditToggle');
   toggleBtn.textContent = catsEditMode ? '✓ Listo' : '✎ Editar';
   toggleBtn.classList.toggle('active', catsEditMode);
+
+  const dragHint = document.getElementById('catsDragHint');
+  if(dragHint) dragHint.style.display = catsEditMode ? '' : 'none';
+
+  updateCatNoteHint();
 }
+
+/* ---------- Arrastrar para reordenar categorías (solo en modo Editar) ----------
+   Mantén presionada una categoría ~0.3s para "agarrarla", luego arrástrala a su
+   nuevo lugar y suelta. El orden se guarda en CAT_ORDER_KEY. Usa Pointer Events
+   (sirve para toque y mouse). En modo Editar los tiles llevan touch-action:none
+   para que arrastrar no haga scroll de la página. */
+let catDrag = null; // {node, clone, offsetX, offsetY}
+
+function attachCatDrag(node, id){
+  node.addEventListener('pointerdown', (e)=>{
+    // No arrancar arrastre si tocaste el lápiz o la X (esos son tap).
+    if(e.target.closest('.cat-edit') || e.target.closest('.cat-del')) return;
+    const startX = e.clientX, startY = e.clientY;
+    let grabbed = false;
+    const timer = setTimeout(()=>{ grabbed = true; beginCatDrag(node, startX, startY); }, 300);
+    const move = (ev)=>{
+      if(!grabbed){
+        // Si mueve el dedo antes de "agarrar", cancela (fue un toque/deslizar).
+        if(Math.abs(ev.clientX - startX) > 10 || Math.abs(ev.clientY - startY) > 10){ clearTimeout(timer); end(); }
+        return;
+      }
+      ev.preventDefault();
+      dragCatMove(ev);
+    };
+    const up = ()=>{ clearTimeout(timer); if(grabbed) endCatDrag(); end(); };
+    const end = ()=>{
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+}
+
+let catDragPrevOrder = null; // orden ANTES de este arrastre, para poder deshacer
+function beginCatDrag(node, x, y){
+  catDragPrevOrder = allCategories().map(c=> c.id);
+  const rect = node.getBoundingClientRect();
+  const clone = node.cloneNode(true);
+  clone.className = 'cat-btn cat-drag-clone';
+  clone.style.width = rect.width + 'px';
+  clone.style.height = rect.height + 'px';
+  clone.style.left = rect.left + 'px';
+  clone.style.top = rect.top + 'px';
+  document.body.appendChild(clone);
+  node.classList.add('dragging');
+  catDrag = { node: node, clone: clone, offsetX: x - rect.left, offsetY: y - rect.top };
+  if(navigator.vibrate) { try{ navigator.vibrate(15); }catch(e){} }
+}
+
+function dragCatMove(ev){
+  if(!catDrag) return;
+  catDrag.clone.style.left = (ev.clientX - catDrag.offsetX) + 'px';
+  catDrag.clone.style.top = (ev.clientY - catDrag.offsetY) + 'px';
+  const el = document.elementFromPoint(ev.clientX, ev.clientY);
+  if(!el) return;
+  const tile = el.closest('.cat-btn');
+  if(!tile || tile === catDrag.node) return;
+  const grid = catDrag.node.parentNode;
+  if(tile.parentNode !== grid) return;
+  if(tile.classList.contains('add-new')){
+    grid.insertBefore(catDrag.node, tile); // soltar al final (antes del botón "Nueva")
+    return;
+  }
+  const nodes = Array.from(grid.children);
+  if(nodes.indexOf(tile) < nodes.indexOf(catDrag.node)) grid.insertBefore(catDrag.node, tile);
+  else grid.insertBefore(catDrag.node, tile.nextSibling);
+}
+
+function endCatDrag(){
+  if(!catDrag) return;
+  const grid = catDrag.node.parentNode;
+  if(catDrag.clone && catDrag.clone.parentNode) catDrag.clone.parentNode.removeChild(catDrag.clone);
+  catDrag.node.classList.remove('dragging');
+  catDrag = null;
+  // Guarda el nuevo orden a partir del DOM (los tiles reales tienen data-id; "Nueva" no).
+  const newOrder = Array.from(grid.querySelectorAll('.cat-btn[data-id]')).map(el=> el.dataset.id);
+  const prev = catDragPrevOrder;
+  const changed = !prev || prev.join('|') !== newOrder.join('|');
+  catOrder = newOrder;
+  saveCatOrder();
+  renderCats();
+  // Botón "Deshacer" para volver al orden anterior (solo si de verdad cambió).
+  if(changed && prev){
+    showUndoToast('Categoría movida', ()=>{
+      catOrder = prev.slice();
+      saveCatOrder();
+      renderCats();
+    });
+  }
+}
+
+// Quita tildes/mayúsculas para comparar nombres de categoría sin depender del acento exacto.
+function normalizeCatName(s){
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+// Marca visualmente cuál pill está elegida ('product'/'other') en un selector
+// Producto/Otro (reutilizado por el form de agregar y el de editar).
+function renderStockOnlyOpts(containerId, value){
+  const box = document.getElementById(containerId);
+  if(!box) return;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.classList.toggle('selected', el.getAttribute('data-v') === value);
+  });
+}
+
+let selectedStockOnly = null; // 'product' | 'other' — solo aplica si la categoría es Canjes/Reposición
+let lastNoteHintCat = undefined; // detecta cambio real de categoría para no pisar la elección del usuario
+
+// Aviso sobre cómo escribir la Nota + selector Producto/Otro cuando la categoría
+// elegida es "Canjes" o "Reposición": el dashboard de Timeless usa esa Nota para
+// calcular qué queda pendiente por llegar de cada producto (ver timeless-crm-proyecto),
+// y "Producto" hace que este gasto no cuente en ningún total de esta app (no es
+// plata real, es stock que sale) — ver [[timeless-crm-proyecto]].
+function updateCatNoteHint(){
+  const hint = document.getElementById('catNoteHint');
+  if(!hint) return;
+  const cat = selectedCat ? catById(selectedCat) : null;
+  const isStockCat = cat ? isCashbackExemptCategory(cat.id) : false;
+  hint.style.display = isStockCat ? '' : 'none';
+  if(selectedCat !== lastNoteHintCat){
+    lastNoteHintCat = selectedCat;
+    selectedStockOnly = isStockCat ? 'product' : null;
+  }
+  renderStockOnlyOpts('stockOnlyOpts', selectedStockOnly);
+}
+document.querySelectorAll('#stockOnlyOpts .gt-opt').forEach(el=>{
+  el.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    selectedStockOnly = el.getAttribute('data-v');
+    renderStockOnlyOpts('stockOnlyOpts', selectedStockOnly);
+  });
+});
 
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   catsEditMode = !catsEditMode;
@@ -424,6 +603,30 @@ function saveExpenses(){
   }catch(e){}
 }
 
+// Aviso breve tipo "toast" que aparece y se desvanece solo.
+function showToast(msg, kind){
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>{ t.className = 'toast'; }, 2600);
+}
+
+// Toast con botón "Deshacer": aparece solo, dura ~6s, y al tocar Deshacer
+// ejecuta onUndo (revierte el cambio) y desaparece.
+function showUndoToast(msg, onUndo){
+  const t = document.getElementById('undoToast');
+  if(!t) return;
+  t.innerHTML = '<span class="undo-msg"></span><button class="undo-btn" type="button">Deshacer</button>';
+  t.querySelector('.undo-msg').textContent = msg;
+  t.className = 'undo-toast show';
+  clearTimeout(t._timer);
+  const hide = ()=>{ t.className = 'undo-toast'; clearTimeout(t._timer); };
+  t.querySelector('.undo-btn').onclick = ()=>{ hide(); if(typeof onUndo === 'function') onUndo(); };
+  t._timer = setTimeout(hide, 6000);
+}
+
 /* ---------- Grupos de categorías (filtro pantalla principal) ---------- */
 let catGroups = [];        // [{id, name, cats:[catIds]}]
 let activeGroup = null;    // null = Predeterminado (todas)
@@ -463,15 +666,30 @@ function expenseGroupIds(e){
   return [];
 }
 
+// ¿Un gasto pertenece a un grupo? (por categoría del grupo o etiqueta manual)
+function expenseInGroup(e, groupId){
+  const g = catGroups.find(x=>x.id === groupId);
+  if(!g) return false;
+  if(g.cats.indexOf(e.category) !== -1) return true;
+  if(expenseGroupIds(e).indexOf(groupId) !== -1) return true;
+  return false;
+}
+
 // Filtra una lista de gastos por el grupo activo: incluye los de categorías del
 // grupo Y los gastos individuales etiquetados manualmente con ese grupo (un
 // gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
 // total general — solo afecta qué grupos lo incluyen en su vista filtrada).
 function applyGroupFilter(list){
-  if(!activeGroup) return list;
-  const g = catGroups.find(x=>x.id === activeGroup);
+  return filterByGroupId(list, activeGroup);
+}
+
+// Igual que applyGroupFilter pero para un grupo cualquiera (no solo el activo);
+// lo usa el filtro secundario del feed para segmentar en modo Predeterminado.
+function filterByGroupId(list, groupId){
+  if(!groupId) return list;
+  const g = catGroups.find(x=>x.id === groupId);
   const cats = g ? g.cats : [];
-  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(activeGroup) !== -1);
+  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(groupId) !== -1);
 }
 
 // Pills de "Grupo (opcional)" en un formulario (agregar/editar). Multi-selección:
@@ -520,8 +738,9 @@ function renderCatGroups(){
       const g = t.getAttribute('data-g');
       if(g === '__add'){ openGroupEditor(null); return; }
       activeGroup = g || null;
+      feedGroupFilter = null; // al cambiar de pestaña, el filtro secundario del feed se resetea
       renderCatGroups();
-      renderMonthTotal(); renderDonut(); renderBreakdown();
+      renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim(); renderFeed();
     };
   });
   // Link de editar (solo cuando hay un grupo custom activo)
@@ -609,25 +828,116 @@ function deleteGroup(){
 }
 
 function renderAll(){
+  renderMonthSwitch();
   renderCatGroups();
   renderMonthTotal();
   renderDonut();
   renderBreakdown();
+  renderSimLauncher();
   renderMonths();
   renderFeed();
 }
 
 function currentMonthExpenses(){
-  const now = new Date();
   return expenses.filter(e=>{
     const d = new Date(e.date);
-    return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+    return d.getMonth()===viewMonth && d.getFullYear()===viewYear;
   });
+}
+
+/* ---------- Cashback ----------
+   El cashback se registra como una lista simple de retiros (monto + fecha).
+   Se consume cronológicamente contra TODOS los gastos (sin filtro de grupo: es
+   plata real, no depende de cómo organices tus categorías), así que "retirar 17
+   soles" recupera automáticamente los próximos 17 soles de gasto que ocurran después,
+   sin importar el mes (siempre hacia adelante, nunca retroactivo).
+   Se toma como plata RECUPERADA: baja el total general y los gastos personales, pero
+   NO los del grupo marcado como "negocio" (cashbackExcludeGroup), que se muestran en
+   bruto — porque su cashback conviene dejarlo fuera de los números del negocio. */
+let cashback = []; // [{id, amount, date (ISO), note}]
+let cashbackExcludeGroup = null; // id del grupo "negocio": sus gastos NO reciben cashback
+
+function loadCashback(){
+  try{ cashback = JSON.parse(localStorage.getItem(CASHBACK_KEY)) || []; }
+  catch(e){ cashback = []; }
+}
+function saveCashback(){
+  try{ localStorage.setItem(CASHBACK_KEY, JSON.stringify(cashback)); }catch(e){}
+}
+function loadCashbackExclude(){
+  try{ cashbackExcludeGroup = localStorage.getItem(CASHBACK_EXCLUDE_KEY) || null; }
+  catch(e){ cashbackExcludeGroup = null; }
+}
+function saveCashbackExclude(){
+  try{
+    if(cashbackExcludeGroup) localStorage.setItem(CASHBACK_EXCLUDE_KEY, cashbackExcludeGroup);
+    else localStorage.removeItem(CASHBACK_EXCLUDE_KEY);
+  }catch(e){}
+}
+
+// "Canjes"/"Reposición" son las categorías donde puede haber productos que salen
+// de stock (el dashboard usa la Nota para restar inventario). Se usa como fallback
+// de `isStockMovement` para gastos viejos, de antes del selector Producto/Otro.
+function isCashbackExemptCategory(catId){
+  const cat = catById(catId);
+  if(!cat) return false;
+  const n = normalizeCatName(cat.name);
+  return n === 'canjes' || n === 'reposicion';
+}
+
+// ¿Este gasto es en realidad un producto que salió de stock (no plata real)?
+// `e.stockOnly` es explícito (true=Producto, false=Otro) desde que existe el
+// selector en el formulario; si no está definido (gastos de antes de eso), se
+// asume Producto cuando la categoría es Canjes/Reposición, igual que antes.
+function isStockMovement(e){
+  if(e.stockOnly === true) return true;
+  if(e.stockOnly === false) return false;
+  return isCashbackExemptCategory(e.category);
+}
+
+// Cuánto cashback se retiró en un mes/año dado (suma simple de retiros de ese mes).
+function cashbackInMonth(year, month){
+  return cashback.reduce((s,c)=>{
+    const d = new Date(c.date);
+    return (d.getFullYear() === year && d.getMonth() === month) ? s + c.amount : s;
+  }, 0);
+}
+
+// El cashback resta del total del MISMO mes en que se retiró — no se reparte gasto
+// a gasto ni se arrastra a otro mes: si lo que gastaste ese mes (en efectivo real)
+// no alcanza para "absorber" todo el retiro, el resto simplemente no se refleja en
+// ningún mes (para eso existía el crédito acumulado, y Alberto prefiere que no).
+// `list` debe ser de un solo mes (year, month). Los productos que salen de stock
+// (isStockMovement) no pesan en nada; los del grupo "negocio" cuentan pero el
+// cashback nunca los cubre.
+function netTotalDetailed(list, year, month){
+  let coverable = 0, excluded = 0;
+  list.forEach(e=>{
+    if(isStockMovement(e)) return;
+    const isBusiness = cashbackExcludeGroup && expenseInGroup(e, cashbackExcludeGroup);
+    if(isBusiness) excluded += e.amount; else coverable += e.amount;
+  });
+  const cb = cashbackInMonth(year, month);
+  const recovered = Math.min(cb, coverable);
+  return {net: excluded + (coverable - recovered), recovered: recovered, gross: excluded + coverable};
+}
+
+function netTotal(list, year, month){
+  return netTotalDetailed(list, year, month).net;
+}
+
+// Cuánto cashback se recuperó (se reflejó en el total) dentro de un mes/año específico.
+function cashbackUsedInMonth(year, month){
+  const monthExp = expenses.filter(e=>{
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+  return netTotalDetailed(monthExp, year, month).recovered;
 }
 
 function renderMonthTotal(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
-  const total = monthExp.reduce((s,e)=>s+e.amount,0);
+  const {net: total, recovered} = netTotalDetailed(monthExp, viewYear, viewMonth);
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
   // Escala el tamaño para montos grandes (4-5 dígitos) sin desbordar.
@@ -636,17 +946,95 @@ function renderMonthTotal(){
     valEl.classList.toggle('compact', s.length > 9 && s.length <= 12);
     valEl.classList.toggle('mini', s.length > 12);
   }
-  const monthName = new Date().toLocaleDateString('es-PE', {month:'long'});
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
+  // Línea de cashback recuperado (solo si esta vista tuvo recuperación este mes).
+  const cbEl = document.getElementById('mtCashback');
+  if(cbEl){
+    if(recovered > 0.005){
+      cbEl.textContent = '💰 Recuperaste S/ ' + fmt(recovered) + ' de cashback';
+      cbEl.style.display = '';
+    } else {
+      cbEl.textContent = '';
+      cbEl.style.display = 'none';
+    }
+  }
   renderMtBudgetPanel();
   renderMtBudgetBar(total);
+  renderMtCompare();
 }
+
+// Total gastado (con el filtro de grupo activo y neto de cashback si aplica) en
+// un mes, limitado a los días 1..upToDay.
+function groupFilteredTotalUpTo(year, month, upToDay){
+  const monthExp = applyGroupFilter(expenses.filter(e=>{
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month && d.getDate() <= upToDay;
+  }));
+  return netTotal(monthExp, year, month);
+}
+
+// Indicador ▲/▼ + % del total del mes (general/grupo) vs el mismo tramo de días del
+// mes anterior. Igual criterio de "hasta qué día" que updateCategoryCompare.
+function renderMtCompare(){
+  const el = document.getElementById('mtCompare');
+  if(!el) return;
+  if(!showCatCompare){
+    el.textContent = '';
+    el.className = 'mt-compare';
+    return;
+  }
+  const prev = new Date(viewYear, viewMonth - 1, 1);
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
+  const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
+  const viewedTotal = groupFilteredTotalUpTo(viewYear, viewMonth, cutoff);
+  const prevTotalCapped = groupFilteredTotalUpTo(prevYear, prevMonth, cutoff);
+  const fullPrevTotal = groupFilteredTotalUpTo(prevYear, prevMonth, Infinity);
+  const result = buildCompareResult(viewedTotal, prevTotalCapped, fullPrevTotal);
+
+  if(result === null){
+    el.textContent = '';
+    el.className = 'mt-compare';
+  } else if(result.noWindowData){
+    el.textContent = 'Sin gasto en los primeros ' + cutoff + ' días de ' + prevName;
+    el.className = 'mt-compare';
+  } else {
+    el.textContent = (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
+    el.className = 'mt-compare ' + (result.up ? 'up' : 'down');
+  }
+}
+
+// Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
+function renderMonthSwitch(){
+  const label = document.getElementById('monthSwitchLabel');
+  const nextBtn = document.getElementById('monthNextBtn');
+  if(!label || !nextBtn) return;
+  let full = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'});
+  full = full.charAt(0).toUpperCase() + full.slice(1);
+  label.textContent = full;
+  const now = new Date();
+  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+}
+
+document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
+  viewMonth--;
+  if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderAll();
+});
+document.getElementById('monthNextBtn').addEventListener('click', ()=>{
+  const now = new Date();
+  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no se puede ir al futuro
+  viewMonth++;
+  if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  renderAll();
+});
 
 // Totales por categoría del mes actual (ordenados desc)
 function currentMonthByCategory(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
   const totals = {};
-  monthExp.forEach(e=>{ totals[e.category] = (totals[e.category]||0) + e.amount; });
+  monthExp.forEach(e=>{ if(isStockMovement(e)) return; totals[e.category] = (totals[e.category]||0) + e.amount; });
   const grandTotal = Object.values(totals).reduce((a,b)=>a+b,0);
   const rows = Object.keys(totals)
     .map(id=>{
@@ -763,9 +1151,25 @@ function renderBreakdown(){
     return;
   }
 
+  // Mes anterior al que se está viendo, para el indicador ▲/▼ por categoría.
+  // Compara solo el mismo tramo de días en ambos meses (ver compareCutoffDay).
+  const prev = new Date(viewYear, viewMonth - 1, 1);
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
+
   container.innerHTML = rows.map(c=>{
     const pct = grandTotal>0 ? (c.total/grandTotal*100) : 0;
-    return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span><span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
+    let compareHtml = '';
+    if(showCatCompare){
+      const cappedTotal = categoryTotalForMonth(c.id, viewYear, viewMonth, cutoff);
+      const prevTotalCapped = categoryTotalForMonth(c.id, prevYear, prevMonth, cutoff);
+      const fullPrevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth);
+      const result = buildCompareResult(cappedTotal, prevTotalCapped, fullPrevTotal);
+      if(result && !result.noWindowData){
+        compareHtml = '<span class="bd-compare ' + (result.up ? 'up' : 'down') + '">' + (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '%</span>';
+      }
+    }
+    return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span>' + compareHtml + '<span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
 
   container.querySelectorAll('.bd-row[data-cat]').forEach(row=>{
@@ -773,15 +1177,391 @@ function renderBreakdown(){
   });
 }
 
+/* ---------- Simulador de ahorro ----------
+   Página completa aparte (se abre desde la tarjeta entre "Por categoría" y
+   "Comparar meses"). Deja marcar qué gastos del mes eran EVITABLES para calcular
+   cuánto se pudo ahorrar, con donut de gasto necesario por categoría y un gráfico
+   de barras de ahorro mes a mes. Es 100% local y separado: NO toca los totales
+   reales, ni Sheets, ni el dashboard. El marcado se guarda por gasto (persiste
+   entre sesiones y meses). Los productos (reposición/canjes) nunca cuentan aquí. */
+let avoidableIds = [];       // ids de gastos marcados evitables (persistido)
+let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
+let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut y las barras
+let simActiveCat = null;        // categoría seleccionada en el donut del simulador (null = ninguna)
+const simOpenCats = new Set(); // categorías EXPANDIDAS en la lista de marcado (por defecto todas cerradas)
+
+function loadAvoidable(){
+  try{ avoidableIds = JSON.parse(localStorage.getItem(AVOIDABLE_KEY)) || []; }
+  catch(e){ avoidableIds = []; }
+}
+function saveAvoidable(){
+  try{ localStorage.setItem(AVOIDABLE_KEY, JSON.stringify(avoidableIds)); }catch(e){}
+}
+function isAvoidableExpense(e){ return avoidableIds.indexOf(e.id) !== -1; }
+function toggleAvoidable(id){
+  const i = avoidableIds.indexOf(id);
+  if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
+  saveAvoidable();
+  renderSim();
+}
+
+// Gastos del mes que se está viendo, en el scope del simulador, sin productos.
+function simScopeExpenses(){
+  return filterByGroupId(currentMonthExpenses(), simScope).filter(e=> !isStockMovement(e));
+}
+
+// Gastos de un mes concreto en el scope, sin productos (base para los totales mes a mes).
+function simMonthList(year, month){
+  return filterByGroupId(expenses.filter(e=>{
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  }), simScope).filter(e=> !isStockMovement(e));
+}
+// Suma evitable de un mes concreto (respetando el scope), para el gráfico mes a mes.
+function avoidableForMonth(year, month){
+  return simMonthList(year, month).filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+}
+// Suma NECESARIA de un mes concreto (lo que NO se marcó evitable).
+function necessaryForMonth(year, month){
+  return simMonthList(year, month).filter(e=> !isAvoidableExpense(e)).reduce((s,e)=> s + e.amount, 0);
+}
+
+// Teaser de la tarjeta lanzadora (usa el grupo activo de la pantalla principal).
+function renderSimLauncher(){
+  const t = document.getElementById('simTease');
+  if(!t) return;
+  const list = applyGroupFilter(currentMonthExpenses()).filter(e=> !isStockMovement(e));
+  const avoid = list.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+  t.textContent = avoid > 0.005
+    ? ('Este mes marcaste S/ ' + fmt(avoid) + ' como evitable')
+    : 'Marca tus gastos evitables y mira cuánto pudiste ahorrar';
+}
+
+function openSimPage(){
+  simScope = activeGroup; // arranca con el grupo que tengas activo en la pantalla principal
+  const page = document.getElementById('simPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+  renderSim();
+}
+function closeSimPage(){
+  const page = document.getElementById('simPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+  renderSimLauncher(); // refresca el teaser por si marcaron cosas
+}
+
+// Flechitas de mes dentro de la página del simulador (‹ Mes ›).
+function renderSimMonthNav(){
+  const label = document.getElementById('simMonthLabel');
+  const nextBtn = document.getElementById('simMonthNext');
+  if(!label || !nextBtn) return;
+  label.textContent = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
+  const now = new Date();
+  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+}
+
+// Chips "Ver: Todos / Timeless / Personal" dentro de la página.
+function renderSimScope(){
+  const box = document.getElementById('simScopeOpts');
+  const row = document.getElementById('simScopeRow');
+  if(!box || !row) return;
+  if(catGroups.length === 0){ row.style.display = 'none'; box.innerHTML = ''; return; }
+  row.style.display = '';
+  let html = '<div class="gt-opt' + (!simScope ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (simScope === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{ simScope = el.getAttribute('data-g') || null; renderSim(); };
+  });
+}
+
+// Chips "Necesario / Evitable" que cambian qué muestran el donut y las barras.
+function renderSimGraphToggle(){
+  document.querySelectorAll('#simGraphToggle .gt-opt').forEach(el=>{
+    el.classList.toggle('selected', el.getAttribute('data-mode') === simGraphMode);
+  });
+  const evit = simGraphMode === 'evitable';
+  document.getElementById('simDonutTitle').textContent = evit ? 'Gasto evitable por categoría' : 'Gasto necesario por categoría';
+  document.getElementById('simDonutLabel').textContent = evit ? 'Evitable' : 'Necesario';
+  document.getElementById('simMonthsTitle').textContent = evit ? 'Cuánto pudiste ahorrar mes a mes' : 'Gasto necesario mes a mes';
+}
+
+// Donut por categoría: modo 'necesario' (lo que quedaría) o 'evitable' (lo que se pudo ahorrar).
+// Segmentos y leyenda clickeables (igual que el donut principal): al elegir una
+// categoría, el centro muestra su monto y qué % es de lo necesario/evitable.
+function renderSimDonut(list){
+  const svg = document.getElementById('simDonutSvg');
+  const legend = document.getElementById('simDonutLegend');
+  const value = document.getElementById('simDonutValue');
+  const labelEl = document.getElementById('simDonutLabel');
+  const pctEl = document.getElementById('simDonutPct');
+  if(!svg) return;
+  const evit = simGraphMode === 'evitable';
+  const byCat = {};
+  list.forEach(e=>{
+    const marked = isAvoidableExpense(e);
+    if(evit ? !marked : marked) return; // en 'evitable' solo los marcados; en 'necesario' solo los no marcados
+    byCat[e.category] = (byCat[e.category]||0) + e.amount;
+  });
+  const rows = Object.keys(byCat)
+    .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, icon:c.icon, name:c.name, total:byCat[id]}; })
+    .filter(r=>r.total > 0)
+    .sort((a,b)=> b.total - a.total);
+  const grand = rows.reduce((s,r)=> s + r.total, 0);
+
+  // Si la categoría elegida ya no está (cambió mes/scope/modo), limpiar selección.
+  if(simActiveCat && !rows.some(r=>r.id===simActiveCat)) simActiveCat = null;
+
+  const setCenter = ()=>{
+    if(simActiveCat){
+      const row = rows.find(r=>r.id===simActiveCat);
+      labelEl.textContent = row.icon + ' ' + row.name;
+      fitDonutValue(value, fmt(row.total), true);
+      if(pctEl) pctEl.textContent = (row.total/grand*100).toFixed(1) + '% de lo ' + (evit ? 'evitable' : 'necesario');
+    } else {
+      labelEl.textContent = evit ? 'Evitable' : 'Necesario';
+      fitDonutValue(value, fmt(grand), false);
+      if(pctEl) pctEl.textContent = '';
+    }
+  };
+
+  if(grand === 0){
+    svg.innerHTML = '';
+    legend.innerHTML = '<div class="sim-donut-empty">' + (evit ? 'No marcaste gastos evitables este mes.' : 'Marca gastos para ver el necesario.') + '</div>';
+    labelEl.textContent = evit ? 'Evitable' : 'Necesario';
+    fitDonutValue(value, fmt(0), false);
+    if(pctEl) pctEl.textContent = '';
+    return;
+  }
+
+  const cx = 60, cy = 60, r = 46, C = 2 * Math.PI * r;
+  let offset = 0, segs = '';
+  rows.forEach(row=>{
+    const len = row.total / grand * C;
+    const active = simActiveCat === row.id;
+    segs += '<circle class="seg' + (active ? ' active' : '') + '" data-cat="' + row.id + '" cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + categoryDotColor(row.id) + '" stroke-width="14" stroke-dasharray="' + len + ' ' + (C - len) + '" stroke-dashoffset="' + (-offset) + '"></circle>';
+    offset += len;
+  });
+  svg.innerHTML = segs;
+  legend.innerHTML = rows.map(row=>{
+    const active = simActiveCat === row.id;
+    return '<div class="leg' + (active ? ' active' : '') + '" data-cat="' + row.id + '"><span class="dot" style="background:' + categoryDotColor(row.id) + '"></span>' + row.name + ' <span class="leg-amt">S/ ' + fmt(row.total) + '</span></div>';
+  }).join('');
+  setCenter();
+
+  const pick = (id)=>{ simActiveCat = (simActiveCat === id) ? null : id; renderSimDonut(list); };
+  svg.querySelectorAll('.seg').forEach(el=> el.addEventListener('click', ()=> pick(el.getAttribute('data-cat'))));
+  legend.querySelectorAll('.leg').forEach(el=> el.addEventListener('click', ()=> pick(el.getAttribute('data-cat'))));
+}
+
+// Barras mes a mes: 'evitable' = cuánto pudiste ahorrar cada mes; 'necesario' = gasto necesario cada mes.
+function renderSimMonths(){
+  const barsBox = document.getElementById('simMonthsBars');
+  if(!barsBox) return;
+  const evit = simGraphMode === 'evitable';
+  const now = new Date();
+  let earliest = new Date(now.getFullYear(), now.getMonth(), 1);
+  expenses.forEach(e=>{ const d = new Date(e.date); const f = new Date(d.getFullYear(), d.getMonth(), 1); if(f < earliest) earliest = f; });
+  const series = [];
+  const cur = new Date(earliest);
+  let guard = 0;
+  while(cur <= now && guard < 240){
+    const y = cur.getFullYear(), m = cur.getMonth();
+    const v = evit ? avoidableForMonth(y, m) : necessaryForMonth(y, m);
+    let full = cur.toLocaleDateString('es-PE', {month:'long', year:'numeric'});
+    full = full.charAt(0).toUpperCase() + full.slice(1);
+    series.push({ year:y, month:m, label: cur.toLocaleDateString('es-PE', {month:'short'}).replace('.',''), full:full, v:v, current: (y === viewYear && m === viewMonth) });
+    cur.setMonth(cur.getMonth() + 1); guard++;
+  }
+  const shown = series.slice(-12);
+  const maxV = Math.max(...shown.map(s=>s.v), 1);
+  barsBox.innerHTML = shown.map(s=>{
+    const h = s.v > 0 ? Math.max(s.v / maxV * 100, 4) : 2;
+    return '<div class="mbar sim-mbar' + (evit ? ' evit' : '') + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
+             '<div class="col" style="height:' + h + '%"></div>' +
+             '<div class="mlbl">' + s.label + '</div>' +
+           '</div>';
+  }).join('');
+
+  // Lista abajo (mes por mes con su monto), más reciente primero — así el monto
+  // siempre se ve claro y escala bien cuando se acumulan meses.
+  const listBox = document.getElementById('simMonthsList');
+  if(listBox){
+    listBox.innerHTML = [...shown].reverse().map(s=>
+      '<div class="ml-row' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
+        '<span class="ml-name">' + s.full + '</span>' +
+        '<span class="ml-amt">S/ ' + fmt(s.v) + '</span>' +
+      '</div>'
+    ).join('');
+  }
+
+  const goMonth = (el)=>{
+    viewYear = parseInt(el.getAttribute('data-year'), 10);
+    viewMonth = parseInt(el.getAttribute('data-month'), 10);
+    renderAll();   // la pantalla principal detrás también sigue el mes
+    renderSim();   // y el simulador se recalcula para ese mes
+  };
+  barsBox.querySelectorAll('.sim-mbar').forEach(el=> el.addEventListener('click', ()=> goMonth(el)));
+  if(listBox) listBox.querySelectorAll('.ml-row').forEach(el=> el.addEventListener('click', ()=> goMonth(el)));
+}
+
+function renderSim(){
+  const page = document.getElementById('simPage');
+  if(!page || !page.classList.contains('open')) return;
+  renderSimMonthNav();
+  renderSimScope();
+
+  const list = simScopeExpenses();
+  const real = list.reduce((s,e)=> s + e.amount, 0);
+  const avoidable = list.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+  const necesario = real - avoidable;
+  const scopeName = simScope ? ((catGroups.find(x=>x.id===simScope)||{}).name || 'grupo') : 'Todos';
+  const monthName = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
+
+  // Resumen
+  document.getElementById('simSummary').innerHTML =
+    '<div class="sim-scope">Simulación · ' + scopeName + ' · ' + monthName + '</div>' +
+    '<div class="sim-save">Pudiste ahorrar <span>S/ ' + fmt(avoidable) + '</span></div>' +
+    '<div class="sim-totals">' +
+      '<span>Gastaste: <b>S/ ' + fmt(real) + '</b></span>' +
+      '<span>Necesario: <b>S/ ' + fmt(necesario) + '</b></span>' +
+    '</div>';
+
+  // Desglose por categoría (cuánto de evitable hay en cada una)
+  const byCat = {};
+  list.forEach(e=>{
+    const k = e.category;
+    if(!byCat[k]) byCat[k] = {total:0, avoid:0};
+    byCat[k].total += e.amount;
+    if(isAvoidableExpense(e)) byCat[k].avoid += e.amount;
+  });
+  const catRows = Object.keys(byCat)
+    .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, icon:c.icon, name:c.name, total:byCat[id].total, avoid:byCat[id].avoid}; })
+    .sort((a,b)=> b.avoid - a.avoid || b.total - a.total);
+  document.getElementById('simCats').innerHTML = catRows.map(c=>{
+    const pct = c.total > 0 ? (c.avoid / c.total * 100) : 0;
+    const avoidLabel = c.avoid > 0.005 ? '<span class="sim-cat-avoid">−S/ ' + fmt(c.avoid) + '</span>' : '<span class="sim-cat-none">todo necesario</span>';
+    return '<div class="sim-cat-row"><span class="icon">' + c.icon + '</span><span class="sim-cat-name">' + c.name + '</span>' + avoidLabel + '<span class="sim-cat-total">de S/ ' + fmt(c.total) + '</span></div>' +
+           '<div class="sim-cat-bar"><div class="sim-cat-bar-fill" style="width:' + pct + '%"></div></div>';
+  }).join('');
+
+  // Gráficos (donut + barras mes a mes, según el modo Necesario/Evitable)
+  renderSimGraphToggle();
+  renderSimDonut(list);
+  renderSimMonths();
+
+  // Lista de gastos marcables — agrupada por categoría, COLAPSABLE (arranca cerrada).
+  const grouped = {};
+  const order = [];
+  [...list].sort((a,b)=> new Date(b.date) - new Date(a.date)).forEach(e=>{
+    if(!grouped[e.category]){ grouped[e.category] = []; order.push(e.category); }
+    grouped[e.category].push(e);
+  });
+  const itemsHtml = order.map(catId=>{
+    const c = catById(catId) || {icon:'🗂️', name:'Otros'};
+    const items = grouped[catId];
+    const catTotal = items.reduce((s,e)=> s + e.amount, 0);
+    const catAvoid = items.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+    const open = simOpenCats.has(catId);
+    const allMarked = items.every(isAvoidableExpense);
+    const rows = items.map(e=>{
+      const marked = isAvoidableExpense(e);
+      const d = new Date(e.date);
+      const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+      const label = (e.note ? e.note : c.name) + ' · ' + dateStr;
+      return '<div class="sim-item' + (marked ? ' avoid' : '') + '" data-id="' + e.id + '">' +
+               '<div class="sim-check">' + (marked ? '✕' : '') + '</div>' +
+               '<div class="sim-item-info">' + label + '</div>' +
+               '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
+             '</div>';
+    }).join('');
+    const selAll = '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>';
+    const avoidTag = catAvoid > 0.005 ? '<span class="sim-cat-hd-avoid">−S/ ' + fmt(catAvoid) + '</span>' : '';
+    return '<div class="sim-cat-group' + (open ? ' open' : '') + '" data-cat="' + catId + '">' +
+             '<div class="sim-cat-head">' +
+               '<span class="sim-caret">▸</span>' +
+               '<span class="icon">' + c.icon + '</span>' +
+               '<span class="sim-cat-hd-name">' + c.name + ' <span class="sim-cat-hd-count">(' + items.length + ')</span></span>' +
+               avoidTag +
+               '<span class="sim-cat-hd-total">S/ ' + fmt(catTotal) + '</span>' +
+             '</div>' +
+             '<div class="sim-cat-items">' + selAll + rows + '</div>' +
+           '</div>';
+  }).join('');
+
+  const listBox = document.getElementById('simList');
+  if(list.length === 0){
+    listBox.innerHTML = '<div class="empty">No hay gastos que simular en ' + monthName + (simScope ? ' para ' + scopeName : '') + '.</div>';
+  } else {
+    listBox.innerHTML = '<div class="sim-list-title">Marca lo que pudiste evitar</div>' + itemsHtml;
+    listBox.querySelectorAll('.sim-cat-group').forEach(group=>{
+      group.querySelector('.sim-cat-head').addEventListener('click', ()=>{
+        const id = group.getAttribute('data-cat');
+        group.classList.toggle('open');
+        if(group.classList.contains('open')) simOpenCats.add(id); else simOpenCats.delete(id);
+      });
+    });
+    listBox.querySelectorAll('.sim-item').forEach(el=>{
+      el.addEventListener('click', ()=> toggleAvoidable(el.getAttribute('data-id')));
+    });
+    listBox.querySelectorAll('.sim-selall').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        const group = btn.closest('.sim-cat-group');
+        const ids = Array.from(group.querySelectorAll('.sim-item')).map(el=>el.getAttribute('data-id'));
+        simSelectAllCat(ids);
+      });
+    });
+  }
+}
+
+// Marca (o desmarca, si ya estaban todos) TODOS los gastos de una categoría de golpe.
+function simSelectAllCat(ids){
+  const allMarked = ids.every(id=> avoidableIds.indexOf(id) !== -1);
+  if(allMarked){
+    avoidableIds = avoidableIds.filter(id=> ids.indexOf(id) === -1);
+  } else {
+    ids.forEach(id=>{ if(avoidableIds.indexOf(id) === -1) avoidableIds.push(id); });
+  }
+  saveAvoidable();
+  renderSim();
+}
+
+document.getElementById('simOpenBtn').addEventListener('click', openSimPage);
+document.querySelectorAll('#simGraphToggle .gt-opt').forEach(el=>{
+  el.addEventListener('click', ()=>{ simGraphMode = el.getAttribute('data-mode'); simActiveCat = null; renderSim(); });
+});
+document.getElementById('simBack').addEventListener('click', closeSimPage);
+document.getElementById('simMonthPrev').addEventListener('click', ()=>{
+  viewMonth--;
+  if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderAll();  // la pantalla principal detrás también sigue el mes
+  renderSim();
+});
+document.getElementById('simMonthNext').addEventListener('click', ()=>{
+  const now = new Date();
+  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no ir al futuro
+  viewMonth++;
+  if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  renderAll();
+  renderSim();
+});
+
 /* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.
 function dailyTotalsForCategory(catId){
-  const now = new Date();
-  const year = now.getFullYear(), month = now.getMonth();
+  const year = viewYear, month = viewMonth;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const totals = new Array(daysInMonth + 1).fill(0); // index 1..daysInMonth
   expenses.forEach(e=>{
     if(e.category !== catId) return;
+    if(isStockMovement(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month){
       totals[d.getDate()] += e.amount;
@@ -792,33 +1572,83 @@ function dailyTotalsForCategory(catId){
 
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// Total de una categoría en un mes/año dados.
-function categoryTotalForMonth(catId, year, month){
+// Total de una categoría en un mes/año dados. `upToDay` (opcional) limita la suma
+// a los días 1..upToDay del mes (para comparar "lo que va del mes" contra el mismo
+// tramo de días del mes anterior, en vez de mes completo vs mes a medias).
+function categoryTotalForMonth(catId, year, month, upToDay){
+  const cap = (upToDay == null) ? Infinity : upToDay;
   let t = 0;
   expenses.forEach(e=>{
     if(e.category !== catId) return;
+    if(isStockMovement(e)) return;
     const d = new Date(e.date);
-    if(d.getFullYear() === year && d.getMonth() === month) t += e.amount;
+    if(d.getFullYear() === year && d.getMonth() === month && d.getDate() <= cap) t += e.amount;
   });
   return t;
 }
 
-// Indicador ▲/▼ + % vs el mismo mes anterior. Se oculta si no hubo gasto el mes pasado.
+// Día límite para comparar el mes (yearA,monthA) contra (yearB,monthB): si A es el
+// mes real en curso, hasta hoy; si A ya terminó, hasta su último día. Nunca más
+// allá de los días que tenga B (ej: comparar contra febrero corta en el día 28/29).
+function compareCutoffDay(yearA, monthA, yearB, monthB){
+  const now = new Date();
+  const isOngoing = (yearA === now.getFullYear() && monthA === now.getMonth());
+  const daysInA = new Date(yearA, monthA + 1, 0).getDate();
+  const daysInB = new Date(yearB, monthB + 1, 0).getDate();
+  const cutoff = isOngoing ? now.getDate() : daysInA;
+  return Math.min(cutoff, daysInB);
+}
+
+// Decide qué mostrar en un indicador de comparación:
+// - null: el mes anterior no tuvo NINGÚN gasto (ni siquiera fuera del tramo) -> ocultar del todo.
+// - {noWindowData:true}: el mes anterior sí tuvo gasto, pero no dentro del mismo tramo de días
+//   (ej: recién el día 20) -> avisar que no hay con qué comparar en ese tramo, en vez de
+//   desaparecer sin explicación (eso es lo que hacía parecer que el indicador estaba roto).
+// - {diff, up}: hay datos comparables en ambos tramos -> mostrar el % normal.
+function buildCompareResult(cappedNow, cappedPrev, fullPrev){
+  if(fullPrev <= 0) return null;
+  if(cappedPrev <= 0) return {noWindowData:true};
+  const diff = (cappedNow - cappedPrev) / cappedPrev * 100;
+  return {diff:diff, up: diff >= 0};
+}
+
+// Indicador ▲/▼ + % vs el mismo tramo de días del mes anterior, y el total (completo,
+// sin recortar) del mes anterior en la esquina. Ambos solo si showCatCompare está activo.
 function updateCategoryCompare(catId, monthTotal, year, month){
   const el = document.getElementById('cdCompare');
+  const prevEl = document.getElementById('cdPrevTotal');
   if(!el) return;
   const prev = new Date(year, month - 1, 1);
-  const prevTotal = categoryTotalForMonth(catId, prev.getFullYear(), prev.getMonth());
-  if(prevTotal <= 0){
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
+
+  if(!showCatCompare){
     el.textContent = '';
     el.className = 'cd-compare';
+    if(prevEl) prevEl.textContent = '';
     return;
   }
-  const diff = (monthTotal - prevTotal) / prevTotal * 100;
-  const up = diff >= 0;
-  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
-  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName;
-  el.className = 'cd-compare ' + (up ? 'up' : 'down');
+
+  const fullPrevTotal = categoryTotalForMonth(catId, prevYear, prevMonth);
+  if(prevEl){
+    prevEl.textContent = 'Total ' + cap(prevName) + ': S/ ' + fmt(fullPrevTotal);
+  }
+
+  const cutoff = compareCutoffDay(year, month, prevYear, prevMonth);
+  const monthTotalCapped = categoryTotalForMonth(catId, year, month, cutoff);
+  const prevTotalCapped = categoryTotalForMonth(catId, prevYear, prevMonth, cutoff);
+  const result = buildCompareResult(monthTotalCapped, prevTotalCapped, fullPrevTotal);
+
+  if(result === null){
+    el.textContent = '';
+    el.className = 'cd-compare';
+  } else if(result.noWindowData){
+    el.textContent = 'Sin gasto en los primeros ' + cutoff + ' días de ' + prevName;
+    el.className = 'cd-compare';
+  } else {
+    el.textContent = (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
+    el.className = 'cd-compare ' + (result.up ? 'up' : 'down');
+  }
 }
 
 // Estado del gráfico de detalle
@@ -950,6 +1780,7 @@ function openCategoryDetail(catId){
   }
 
   // Comparativo vs mes anterior (solo si hubo gasto el mes pasado en esta categoría).
+  document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
   updateCategoryCompare(catId, monthTotal, year, month);
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
@@ -1204,6 +2035,23 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   document.getElementById('mtBudgetInput').value = '';
   renderMonthTotal();
 });
+// Compartido por el botón 📊 del header y el de dentro de cada categoría.
+function toggleShowCatCompare(){
+  showCatCompare = !showCatCompare;
+  saveShowCatCompare();
+  document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+  document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
+  renderMtCompare();
+  renderBreakdown();
+  // Si hay una categoría abierta, refresca su comparativo también.
+  if(cdCatId){
+    const monthTotal = parseFloat(document.getElementById('cdTotal').textContent) || 0;
+    updateCategoryCompare(cdCatId, monthTotal, cdYear, cdMonth);
+  }
+}
+
+document.getElementById('mtCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
+document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 
 // Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
 function renderBudgetBar(catId, spent){
@@ -1364,14 +2212,14 @@ function monthlySeries(){
   expenses.forEach(e=>{
     const d = new Date(e.date);
     const k = monthKey(d);
-    totals[k] = (totals[k]||0) + e.amount;
+    if(!isStockMovement(e)) totals[k] = (totals[k]||0) + e.amount;
     const first = new Date(d.getFullYear(), d.getMonth(), 1);
     if(first < earliest) earliest = first;
   });
 
   const series = [];
   const cur = new Date(earliest);
-  const currentKey = monthKey(now);
+  const selectedKey = monthKey(new Date(viewYear, viewMonth, 1)); // mes que se está viendo (resaltado)
   let guard = 0;
   while(cur <= now && guard < 240){
     const k = monthKey(cur);
@@ -1382,8 +2230,10 @@ function monthlySeries(){
       key:k,
       label:label,
       full:full,
+      year: cur.getFullYear(),
+      month: cur.getMonth(),
       total: totals[k] || 0,
-      current: k === currentKey
+      current: k === selectedKey
     });
     cur.setMonth(cur.getMonth()+1);
     guard++;
@@ -1401,7 +2251,7 @@ function renderMonths(){
   barsBox.innerHTML = series.map(s=>{
     const h = s.total > 0 ? Math.max((s.total/maxTotal*100), 4) : 2;
     const valLabel = s.total > 0 ? ('<span class="val">' + Math.round(s.total) + '</span>') : '';
-    return '<div class="mbar' + (s.current ? ' current' : '') + '">' +
+    return '<div class="mbar' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
              '<div class="col" style="height:' + h + '%">' + valLabel + '</div>' +
              '<div class="mlbl">' + s.label + '</div>' +
            '</div>';
@@ -1409,25 +2259,65 @@ function renderMonths(){
 
   // Lista (más reciente primero)
   listBox.innerHTML = [...series].reverse().map(s=>{
-    return '<div class="ml-row' + (s.current ? ' current' : '') + '">' +
+    return '<div class="ml-row' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
              '<span class="ml-name">' + s.full + '</span>' +
              '<span class="ml-amt">S/ ' + fmt(s.total) + '</span>' +
            '</div>';
   }).join('');
+
+  // Tocar una barra o una fila de la lista -> ver ese mes en la pantalla principal.
+  const selectMonth = (y, m)=>{
+    viewYear = y;
+    viewMonth = m;
+    renderAll();
+  };
+  barsBox.querySelectorAll('.mbar').forEach(el=>{
+    el.addEventListener('click', ()=> selectMonth(parseInt(el.getAttribute('data-year'), 10), parseInt(el.getAttribute('data-month'), 10)));
+  });
+  listBox.querySelectorAll('.ml-row').forEach(el=>{
+    el.addEventListener('click', ()=> selectMonth(parseInt(el.getAttribute('data-year'), 10), parseInt(el.getAttribute('data-month'), 10)));
+  });
 }
 
 // Modo de orden de "Movimientos recientes": 'default' (cronológico) o 'category'.
 // Siempre inicia en 'default' al abrir la app (no se persiste).
 let feedSortMode = 'default';
+let feedGroupFilter = null; // filtro secundario del feed en Predeterminado (null = Todos)
 const feedOpenGroups = new Set(); // grupos expandidos en el modo por categoría
+const feedClosedDayGroups = new Set(); // días CERRADOS en el modo "Por día" (por defecto todos abiertos)
 let feedSearch = {text:'', min:null, max:null, from:'', to:''}; // filtros del buscador
+
+// Fila de chips "Ver: Todos / Timeless / Personal" para segmentar SOLO el feed
+// cuando estás en Predeterminado (sin grupo activo). Cuando ya hay un grupo
+// activo en las pestañas de arriba, el feed ya viene filtrado por ese grupo, así
+// que esta fila se oculta (sería redundante).
+function renderFeedGroupFilter(){
+  const row = document.getElementById('feedGroupFilter');
+  const box = document.getElementById('feedGroupFilterOpts');
+  if(!row || !box) return;
+  if(activeGroup || catGroups.length === 0){ row.style.display = 'none'; return; }
+  row.style.display = '';
+  let html = '<div class="gt-opt' + (!feedGroupFilter ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (feedGroupFilter === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{
+      feedGroupFilter = el.getAttribute('data-g') || null;
+      renderFeedGroupFilter();
+      renderFeed();
+    };
+  });
+}
 
 // Markup de una transacción del feed (compartido por ambos modos).
 function txHtml(e){
   const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
   const d = new Date(e.date);
   const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
-  return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="edit" data-id="' + e.id + '" title="Editar">✏️</div><div class="del" data-id="' + e.id + '" title="Borrar">✕</div></div>';
+  const stockTag = isStockMovement(e) ? '<span class="tx-stock-tag">📦 no cuenta</span>' : '';
+  return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + stockTag + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="edit" data-id="' + e.id + '" title="Editar">✏️</div><div class="del" data-id="' + e.id + '" title="Borrar">✕</div></div>';
 }
 
 // Filtra el feed según el buscador (nota/categoría, rango de monto, rango de fechas).
@@ -1450,13 +2340,25 @@ function filterFeedExpenses(list){
 
 function renderFeed(){
   const feed = document.getElementById('feed');
+  renderFeedGroupFilter();
 
   if(expenses.length === 0){
     feed.innerHTML = '<div class="empty">Agrega tu primer gasto arriba 👆</div>';
     return;
   }
 
-  const base = filterFeedExpenses(expenses);
+  // Movimientos recientes muestra solo el mes que se está viendo (igual que el
+  // total y el donut) y respeta el grupo: la pestaña activa manda; si estás en
+  // Predeterminado, el chip secundario "Ver:" segmenta solo el feed.
+  const effGroup = activeGroup || feedGroupFilter;
+  const monthExpenses = filterByGroupId(currentMonthExpenses(), effGroup);
+  if(monthExpenses.length === 0){
+    const gName = effGroup ? ((catGroups.find(x=>x.id===effGroup)||{}).name) : null;
+    feed.innerHTML = '<div class="empty">' + (gName ? 'No tienes movimientos de ' + gName + ' en este mes.' : 'No tienes movimientos en este mes.') + '</div>';
+    return;
+  }
+
+  const base = filterFeedExpenses(monthExpenses);
   if(base.length === 0){
     feed.innerHTML = '<div class="empty">Ningún movimiento coincide con la búsqueda.</div>';
     return;
@@ -1473,7 +2375,7 @@ function renderFeed(){
     feed.innerHTML = orderedIds.map(id=>{
       const cat = catById(id) || {icon:'🗂️', name:'Otros'};
       const items = groups[id];
-      const total = items.reduce((s,e)=>s+e.amount,0);
+      const total = items.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
       const open = feedOpenGroups.has(id);
       return '<div class="feed-group' + (open ? ' open' : '') + '" data-cat="' + id + '">' +
                '<div class="fg-head">' +
@@ -1491,6 +2393,44 @@ function renderFeed(){
         group.classList.toggle('open');
         if(group.classList.contains('open')) feedOpenGroups.add(id);
         else feedOpenGroups.delete(id);
+      });
+    });
+  } else if(feedSortMode === 'day'){
+    // Agrupar TODOS los gastos filtrados (todas las categorías juntas) por día,
+    // día más reciente primero, con el total de cada día — para ver de un vistazo
+    // cuánto se gastó en un día puntual, sin importar la categoría.
+    const sorted = [...base].sort((a,b)=> new Date(b.date) - new Date(a.date));
+    const groups = {};
+    const order = [];
+    sorted.forEach(e=>{
+      const d = new Date(e.date);
+      const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      if(!groups[key]){ groups[key] = []; order.push(key); }
+      groups[key].push(e);
+    });
+
+    feed.innerHTML = order.map(key=>{
+      const items = groups[key];
+      const total = items.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
+      const d = new Date(key + 'T12:00:00');
+      const label = d.toLocaleDateString('es-PE', {weekday:'long', day:'2-digit', month:'long'});
+      const open = !feedClosedDayGroups.has(key);
+      return '<div class="feed-group' + (open ? ' open' : '') + '" data-day="' + key + '">' +
+               '<div class="fg-head">' +
+                 '<span class="fg-icon">📅</span>' +
+                 '<span class="fg-name">' + cap(label) + ' <span class="fg-count">(' + items.length + ')</span></span>' +
+                 '<span class="fg-right"><span class="fg-amt">S/ ' + fmt(total) + '</span><span class="fg-caret">▼</span></span>' +
+               '</div>' +
+               '<div class="fg-body">' + items.map(txHtml).join('') + '</div>' +
+             '</div>';
+    }).join('');
+
+    feed.querySelectorAll('.feed-group').forEach(group=>{
+      group.querySelector('.fg-head').addEventListener('click', ()=>{
+        const key = group.getAttribute('data-day');
+        group.classList.toggle('open');
+        if(group.classList.contains('open')) feedClosedDayGroups.delete(key);
+        else feedClosedDayGroups.add(key);
       });
     });
   } else {
@@ -1581,6 +2521,27 @@ function jumpToExpense(id){
 let editingId = null;
 let editSelectedCat = null;
 let editSelectedGroups = [];
+let editSelectedStockOnly = null; // 'product' | 'other'
+let lastEditNoteHintCat = undefined;
+
+function updateEditCatNoteHint(){
+  const hint = document.getElementById('editCatNoteHint');
+  if(!hint) return;
+  const isStockCat = editSelectedCat ? isCashbackExemptCategory(editSelectedCat) : false;
+  hint.style.display = isStockCat ? '' : 'none';
+  if(editSelectedCat !== lastEditNoteHintCat){
+    lastEditNoteHintCat = editSelectedCat;
+    editSelectedStockOnly = isStockCat ? 'product' : null;
+  }
+  renderStockOnlyOpts('editStockOnlyOpts', editSelectedStockOnly);
+}
+document.querySelectorAll('#editStockOnlyOpts .gt-opt').forEach(el=>{
+  el.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    editSelectedStockOnly = el.getAttribute('data-v');
+    renderStockOnlyOpts('editStockOnlyOpts', editSelectedStockOnly);
+  });
+});
 function renderEditGroupTag(){
   renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroups, (g)=>{
     if(!g){ editSelectedGroups = []; }
@@ -1599,7 +2560,7 @@ function renderEditCats(){
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (editSelectedCat === cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
-    btn.onclick = ()=>{ editSelectedCat = cat.id; renderEditCats(); validateEditForm(); };
+    btn.onclick = ()=>{ editSelectedCat = cat.id; renderEditCats(); updateEditCatNoteHint(); validateEditForm(); };
     grid.appendChild(btn);
   });
 }
@@ -1622,8 +2583,11 @@ function openEditExpense(id){
   di.value = localISO;
   di.max = new Date().toISOString().slice(0,10);
   editSelectedGroups = expenseGroupIds(e);
+  editSelectedStockOnly = isStockMovement(e) ? 'product' : 'other';
+  lastEditNoteHintCat = editSelectedCat; // evita que updateEditCatNoteHint pise el valor real con el default
   renderEditCats();
   renderEditGroupTag();
+  updateEditCatNoteHint();
   validateEditForm();
   const page = document.getElementById('editPage');
   page.classList.add('open');
@@ -1650,6 +2614,7 @@ function saveEditExpense(){
   e.category = editSelectedCat;
   delete e.group; // formato viejo (un solo grupo), reemplazado por `groups`
   if(editSelectedGroups.length) e.groups = editSelectedGroups.slice(); else delete e.groups;
+  if(isCashbackExemptCategory(editSelectedCat)) e.stockOnly = (editSelectedStockOnly === 'product'); else delete e.stockOnly;
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
@@ -1997,6 +2962,152 @@ document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
     else{ showRemList(); renderRemindersList(); }
   });
 });
+/* ---------- Página de Cashback ---------- */
+let cbEditingId = null;
+
+// Pills para elegir el grupo "negocio" que NO recibe cashback.
+function renderCbScope(){
+  const box = document.getElementById('cbScopeOpts');
+  if(!box) return;
+  if(catGroups.length === 0){
+    box.innerHTML = '<span class="cb-scope-none">Aún no tienes grupos creados.</span>';
+    return;
+  }
+  let html = '<div class="gt-opt' + (!cashbackExcludeGroup ? ' selected' : '') + '" data-g="">Ninguno</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (cashbackExcludeGroup === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{
+      cashbackExcludeGroup = el.getAttribute('data-g') || null;
+      saveCashbackExclude();
+      renderCbScope();
+      renderCashbackList();
+      renderAll();
+    };
+  });
+}
+
+function renderCashbackList(){
+  const box = document.getElementById('cashbackList');
+  const balanceEl = document.getElementById('cbBalance');
+  const totalRegistered = cashback.reduce((s,c)=>s+c.amount, 0);
+  const withdrawnThisMonth = cashbackInMonth(viewYear, viewMonth);
+  const usedThisMonth = cashbackUsedInMonth(viewYear, viewMonth);
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
+
+  let html = 'Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) +
+    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>' +
+    '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>';
+  if(withdrawnThisMonth - usedThisMonth > 0.005){
+    html += '<span class="cb-used">El cashback se refleja solo dentro de ' + monthName + ' — lo que no alcanzó a cubrirse con gastos de ese mes no pasa al siguiente.</span>';
+  }
+  balanceEl.innerHTML = html;
+
+  renderCbScope();
+
+  if(cashback.length === 0){
+    box.innerHTML = '<div class="empty">Aún no registras cashback. Agrega tu primer retiro con el botón de abajo.</div>';
+    return;
+  }
+  const sorted = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
+  box.innerHTML = sorted.map(c=>{
+    const d = new Date(c.date);
+    const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'});
+    return '<div class="rec-item" data-id="' + c.id + '">' +
+             '<div class="rec-info"><div class="rec-name">💰 S/ ' + fmt(c.amount) + '</div>' +
+               '<div class="rec-meta">' + dateStr + (c.note ? ' · ' + c.note : '') + '</div></div>' +
+             '<div class="rec-actions">' +
+               '<span class="rec-edit" data-id="' + c.id + '" title="Editar">✏️</span>' +
+             '</div>' +
+           '</div>';
+  }).join('');
+  box.querySelectorAll('.rec-edit').forEach(b=>{
+    b.addEventListener('click', ()=> openCbForm(b.getAttribute('data-id')));
+  });
+}
+
+function showCbList(){
+  document.getElementById('cbListWrap').style.display = '';
+  document.getElementById('cbFormWrap').style.display = 'none';
+}
+
+function openCbForm(id){
+  cbEditingId = id;
+  const c = id ? cashback.find(x=>x.id === id) : null;
+  document.getElementById('cbAmount').value = c ? c.amount : '';
+  document.getElementById('cbNote').value = c ? (c.note || '') : '';
+  document.getElementById('cbDate').value = c ? c.date.slice(0,10) : '';
+  document.getElementById('cbDeleteBtn').style.display = c ? '' : 'none';
+  document.getElementById('cbListWrap').style.display = 'none';
+  document.getElementById('cbFormWrap').style.display = '';
+}
+
+function resolveCbDate(){
+  const dv = document.getElementById('cbDate').value;
+  if(dv){
+    const d = new Date(dv + 'T12:00:00');
+    if(!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function saveCbItem(){
+  const amount = parseFloat(document.getElementById('cbAmount').value);
+  if(!(amount > 0)){ alert('Ingresa un monto válido.'); return; }
+  const note = document.getElementById('cbNote').value.trim();
+  const date = resolveCbDate();
+  if(cbEditingId){
+    const c = cashback.find(x=>x.id === cbEditingId);
+    if(c){ c.amount = amount; c.note = note; c.date = date; }
+  } else {
+    cashback.push({id:'cb_' + Date.now(), amount:amount, note:note, date:date});
+  }
+  saveCashback();
+  showCbList();
+  renderCashbackList();
+  renderAll(); // el total general puede haber cambiado
+}
+
+function deleteCbItem(){
+  if(!cbEditingId) return;
+  if(!window.confirm('¿Eliminar este registro de cashback?')) return;
+  cashback = cashback.filter(x=>x.id !== cbEditingId);
+  saveCashback();
+  showCbList();
+  renderCashbackList();
+  renderAll();
+}
+
+function openCashbackPage(){
+  cbEditingId = null;
+  showCbList();
+  renderCashbackList();
+  const page = document.getElementById('cashbackPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+}
+function closeCashbackPage(){
+  const page = document.getElementById('cashbackPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+}
+
+document.getElementById('cashbackBtn').addEventListener('click', openCashbackPage);
+document.getElementById('cashbackBack').addEventListener('click', closeCashbackPage);
+document.getElementById('cashbackAddBtn').addEventListener('click', ()=> openCbForm(null));
+document.getElementById('cbSaveBtn').addEventListener('click', saveCbItem);
+document.getElementById('cbDeleteBtn').addEventListener('click', deleteCbItem);
+document.getElementById('cbCancelBtn').addEventListener('click', showCbList);
+(function(){
+  const di = document.getElementById('cbDate');
+  if(di) di.max = new Date().toISOString().slice(0,10);
+})();
+
 document.getElementById('editAmount').addEventListener('input', validateEditForm);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && document.getElementById('editPage').classList.contains('open')) closeEditExpense();
@@ -2028,6 +3139,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     date: resolveGastoDate()
   };
   if(selectedGroupTags.length) gasto.groups = selectedGroupTags.slice();
+  if(isCashbackExemptCategory(selectedCat)) gasto.stockOnly = (selectedStockOnly === 'product');
   expenses.push(gasto);
 
   saveExpenses();
@@ -2044,6 +3156,8 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
   document.getElementById('dateInput').value = '';
   selectedCat = null;
   selectedGroupTags = [];
+  selectedStockOnly = null;
+  lastNoteHintCat = undefined;
   renderCats();
   validateForm();
   renderAll();
@@ -2064,6 +3178,7 @@ try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCatOverrides();
 loadDeletedBaseCats();
+loadCatOrder();
 loadCategoryColors();
 loadCategoryBudgets();
 loadGeneralBudget();
@@ -2071,5 +3186,11 @@ loadGroupBudgets();
 loadCatGroups();
 loadRecurring();
 loadReminders();
+loadCashback();
+loadCashbackExclude();
+loadAvoidable();
+loadShowCatCompare();
+document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
 renderCats();
 loadExpenses();

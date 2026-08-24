@@ -26,9 +26,17 @@
       <div class="eyebrow" id="eyebrow" title="Toca para editar"><span id="eyebrowText">Timeless · Control personal</span><span class="edit-pencil" id="eyebrowEdit">✎</span></div>
       <h1>Mis gastos</h1>
     </div>
-    <div class="header-btns">
-      <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
-      <div class="gear-btn" id="gearBtn">⚙️</div>
+    <div class="header-right">
+      <div class="header-btns">
+        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
+        <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
+        <div class="gear-btn" id="gearBtn">⚙️</div>
+      </div>
+      <div class="month-switch" id="monthSwitch">
+        <button class="month-switch-btn" id="monthPrevBtn" type="button" aria-label="Mes anterior">‹</button>
+        <span class="month-switch-label" id="monthSwitchLabel">Este mes</span>
+        <button class="month-switch-btn" id="monthNextBtn" type="button" aria-label="Mes siguiente">›</button>
+      </div>
     </div>
   </div>
   <div class="cat-groups" id="catGroups"></div>
@@ -38,7 +46,10 @@
     <div class="mt-row">
       <div class="value">S/<span id="monthValue">0.00</span></div>
       <button class="mt-budget-btn" id="mtBudgetBtn" type="button" title="Presupuesto">🎯</button>
+      <button class="mt-budget-btn mt-compare-toggle-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
     </div>
+    <div class="mt-compare" id="mtCompare"></div>
+    <div class="mt-cashback" id="mtCashback" style="display:none"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
       <div class="cd-color-title cd-budget-title" id="mtBudgetTitle">Presupuesto general (opcional)</div>
       <div class="cd-budget-input-wrap">
@@ -84,7 +95,17 @@
     <span class="cats-header-label">Categoría</span>
     <button class="cats-edit-toggle" id="catsEditToggle" type="button">✎ Editar</button>
   </div>
+  <div class="cats-drag-hint" id="catsDragHint" style="display:none">✋ Mantén presionada una categoría y arrástrala para reordenar.</div>
   <div class="cats" id="catGrid"></div>
+  <div class="cat-note-hint" id="catNoteHint" style="display:none">En la nota, escribe el nombre EXACTO del producto que regalaste (tal como aparece en tu Excel de Stocks). Si es algo que se vende en par (como los anillos) y solo regalaste UNA pieza, escribe solo el nombre de esa pieza — si pones un texto genérico, el sistema asume que regalaste el par completo.
+    <div class="group-tag-row stock-only-row" id="stockOnlyRow">
+      <span class="group-tag-label">¿Qué es este registro?</span>
+      <div class="group-tag-opts" id="stockOnlyOpts">
+        <div class="gt-opt" data-v="product">📦 Producto (no gasta efectivo)</div>
+        <div class="gt-opt" data-v="other">💵 Otro (envío, devolución...)</div>
+      </div>
+    </div>
+  </div>
 
   <div class="new-cat-form" id="newCatForm">
     <div class="row">
@@ -118,6 +139,16 @@
 </div>
 <div class="breakdown" id="breakdown"></div>
 
+<div class="sim-section" id="simSection">
+  <div class="sim-head">
+    <div class="sim-head-text">
+      <span class="sim-title">🧮 Simulador de ahorro</span>
+      <span class="sim-sub" id="simTease">Marca tus gastos evitables y mira cuánto pudiste ahorrar</span>
+    </div>
+    <button class="sim-toggle" id="simOpenBtn" type="button">Abrir</button>
+  </div>
+</div>
+
 <div class="section-title">Comparar meses</div>
 <div class="months-card" id="monthsCard">
   <div class="months-bars" id="monthsBars"></div>
@@ -132,6 +163,7 @@
       <div class="fs-opt active" data-mode="default">Predeterminado</div>
       <div class="fs-opt" data-mode="oldest">Más antiguo</div>
       <div class="fs-opt" data-mode="category">Por categoría</div>
+      <div class="fs-opt" data-mode="day">Por día</div>
     </div>
   </span>
 </div>
@@ -154,6 +186,10 @@
   </div>
   <button class="ff-clear" id="ffClear" type="button">Limpiar filtros</button>
 </div>
+<div class="feed-group-filter" id="feedGroupFilter" style="display:none">
+  <span class="feed-group-filter-label">Ver:</span>
+  <div class="group-tag-opts" id="feedGroupFilterOpts"></div>
+</div>
 <div class="feed" id="feed"></div>
 
 <!-- Detalle diario por categoría (página completa) -->
@@ -161,6 +197,7 @@
   <div class="cd-topbar">
     <button class="cd-back" id="cdBack" aria-label="Volver">←</button>
     <div class="cd-title"><span class="cd-icon" id="cdIcon"></span><span id="cdName"></span></div>
+    <button class="cd-color-btn" id="cdCompareToggleBtn" type="button" title="Mostrar/ocultar comparación con el mes anterior">📊</button>
     <button class="cd-color-btn" id="cdColorBtn" aria-label="Ajustes de la categoría"><svg id="cdGearIcon" class="cd-gear-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
   </div>
   <div class="cd-color-panel" id="cdColorPanel">
@@ -174,7 +211,10 @@
       <button class="cd-budget-btn cd-budget-clear" id="cdBudgetClear" type="button">Quitar</button>
     </div>
   </div>
-  <div class="cd-total">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
+  <div class="cd-total">
+    <div class="cd-total-main">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
+    <div class="cd-prev-total" id="cdPrevTotal"></div>
+  </div>
   <div class="cd-budget-bar" id="cdBudgetBar"></div>
   <div class="cd-sub" id="cdSub">Gasto por día</div>
   <div class="cd-graph" id="cdGraph">
@@ -213,6 +253,16 @@
       <input type="date" id="editDate" class="date-input">
     </label>
     <div class="cats" id="editCatGrid"></div>
+    <div class="cat-note-hint" id="editCatNoteHint" style="display:none">
+      Si es un producto, escribe en la Nota su nombre EXACTO (como en tu Excel de Stocks).
+      <div class="group-tag-row stock-only-row" id="editStockOnlyRow">
+        <span class="group-tag-label">¿Qué es este registro?</span>
+        <div class="group-tag-opts" id="editStockOnlyOpts">
+          <div class="gt-opt" data-v="product">📦 Producto (no gasta efectivo)</div>
+          <div class="gt-opt" data-v="other">💵 Otro (envío, devolución...)</div>
+        </div>
+      </div>
+    </div>
     <div class="group-tag-row" id="editGroupTagRow">
       <span class="group-tag-label">Grupo (opcional)</span>
       <div class="group-tag-opts" id="editGroupTagOpts"></div>
@@ -289,6 +339,88 @@
     </div>
   </div>
 </div>
+
+<div class="cat-detail-page recurring-page" id="cashbackPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="cashbackBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Cashback</span></div>
+  </div>
+  <div class="edit-card">
+    <div id="cbListWrap">
+      <div class="rec-hint">Registra cada retiro de cashback de tu tarjeta. Se toma como plata recuperada: baja tu total general y tus gastos personales, pero no los de tu negocio (marca cuál es abajo). Solo afecta gastos de la fecha del retiro en adelante.</div>
+      <div class="cb-balance" id="cbBalance"></div>
+      <div class="cb-scope-row">
+        <span class="cb-scope-label">Tu negocio (el cashback NO le resta):</span>
+        <div class="group-tag-opts" id="cbScopeOpts"></div>
+      </div>
+      <div class="rec-list" id="cashbackList"></div>
+      <button class="save-btn rec-add-btn" id="cashbackAddBtn" type="button">+ Nuevo cashback</button>
+    </div>
+    <div id="cbFormWrap" style="display:none">
+      <div class="amount-row">
+        <span>S/</span>
+        <input type="number" id="cbAmount" placeholder="0.00" inputmode="decimal" step="0.01">
+      </div>
+      <input type="text" id="cbNote" placeholder="Nota (opcional) — ej: retiro BCP">
+      <label class="date-row">
+        <span class="date-label">📅 Fecha <span class="date-hint">(opcional — hoy por defecto)</span></span>
+        <input type="date" id="cbDate" class="date-input">
+      </label>
+      <button class="save-btn" id="cbSaveBtn">Guardar</button>
+      <button class="group-delete-btn" id="cbDeleteBtn" type="button">Eliminar</button>
+      <button class="group-delete-btn" id="cbCancelBtn" type="button">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Simulador de ahorro (página completa) -->
+<div class="cat-detail-page recurring-page" id="simPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="simBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Simulador de ahorro</span></div>
+  </div>
+  <div class="edit-card">
+    <div class="sim-month-nav">
+      <button class="sim-mn-btn" id="simMonthPrev" type="button" aria-label="Mes anterior">‹</button>
+      <span class="sim-mn-label" id="simMonthLabel">Mes</span>
+      <button class="sim-mn-btn" id="simMonthNext" type="button" aria-label="Mes siguiente">›</button>
+    </div>
+    <div class="sim-scope-row" id="simScopeRow">
+      <span class="sim-scope-label">Ver:</span>
+      <div class="group-tag-opts" id="simScopeOpts"></div>
+    </div>
+    <div class="sim-summary" id="simSummary"></div>
+    <div class="sim-cats" id="simCats"></div>
+    <div class="sim-note">Es solo una simulación tuya: no afecta tus gastos reales, ni el dashboard, ni nada. Se guarda por mes; puedes cambiar los marcados cuando quieras.</div>
+    <div class="sim-graphs">
+      <div class="sim-graph-toggle group-tag-opts" id="simGraphToggle">
+        <div class="gt-opt selected" data-mode="necesario">Necesario</div>
+        <div class="gt-opt" data-mode="evitable">Evitable</div>
+      </div>
+      <div class="sim-graph-title" id="simDonutTitle">Gasto necesario por categoría</div>
+      <div class="sim-donut-card">
+        <div class="donut-wrap">
+          <svg id="simDonutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto por categoría"></svg>
+          <div class="donut-center">
+            <div class="donut-center-label" id="simDonutLabel">Necesario</div>
+            <div class="donut-center-value" id="simDonutValue">S/ 0.00</div>
+            <div class="donut-center-pct" id="simDonutPct"></div>
+          </div>
+        </div>
+        <div class="donut-legend" id="simDonutLegend"></div>
+      </div>
+      <div class="sim-graph-title" id="simMonthsTitle">Gasto necesario mes a mes</div>
+      <div class="months-card">
+        <div class="months-bars" id="simMonthsBars"></div>
+        <div class="months-list" id="simMonthsList"></div>
+      </div>
+    </div>
+    <div class="sim-list" id="simList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" aria-live="polite"></div>
+<div class="undo-toast" id="undoToast" aria-live="polite"></div>
 
 <script src="app.js"></script>
 <script>
