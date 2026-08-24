@@ -875,25 +875,11 @@ function saveCashbackExclude(){
   }catch(e){}
 }
 
-// "Canjes"/"Reposición" son las categorías donde puede haber productos que salen
-// de stock (el dashboard usa la Nota para restar inventario). Se usa como fallback
-// de `isStockMovement` para gastos viejos, de antes del selector Producto/Otro.
-function isCashbackExemptCategory(catId){
-  const cat = catById(catId);
-  if(!cat) return false;
-  const n = normalizeCatName(cat.name);
-  return n === 'canjes' || n === 'reposicion';
-}
-
-// ¿Este gasto es en realidad un producto que salió de stock (no plata real)?
-// `e.stockOnly` es explícito (true=Producto, false=Otro) desde que existe el
-// selector en el formulario; si no está definido (gastos de antes de eso), se
-// asume Producto cuando la categoría es Canjes/Reposición, igual que antes.
-function isStockMovement(e){
-  if(e.stockOnly === true) return true;
-  if(e.stockOnly === false) return false;
-  return isCashbackExemptCategory(e.category);
-}
+// En esta app (amigos) NO existe el concepto de "producto"/stock: no venden nada,
+// así que ningún gasto es "movimiento de stock" — todo cuenta como gasto real.
+// (En la app personal esto detecta Canjes/Reposición para no contar productos.)
+function isCashbackExemptCategory(catId){ return false; }
+function isStockMovement(e){ return false; }
 
 // Cuánto cashback se retiró en un mes/año dado (suma simple de retiros de ese mes).
 function cashbackInMonth(year, month){
