@@ -211,6 +211,8 @@ h1{
   color:var(--muted);
   line-height:1.4;
 }
+.backup-hint-row + .backup-hint-row{margin-top:6px;}
+.backup-hint b{color:var(--bone);font-weight:800;}
 .swatch{
   display:flex;
   flex-direction:column;
