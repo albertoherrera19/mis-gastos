@@ -2305,6 +2305,8 @@ function renderRgExpList(){
     listEl.innerHTML = '<div class="rg-exp-empty">No hay gastos en este rango todavía.</div>';
     return;
   }
+  // Lógica invertida a propósito: MARCAR una fila la EXCLUYE (no cuenta). Como
+  // casi todo suele contar, es menos trabajo marcar solo lo poco que no debe sumar.
   let included = 0;
   const rows = list.map(e=>{
     const excluded = rgDraftExcluded.has(e.id);
@@ -2312,7 +2314,7 @@ function renderRgExpList(){
     const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
     const dateStr = new Date(e.date).toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
     return '<label class="rg-exp-item' + (excluded ? ' off' : '') + '">' +
-      '<input type="checkbox" class="rg-exp-check" data-id="' + e.id + '"' + (excluded ? '' : ' checked') + '>' +
+      '<input type="checkbox" class="rg-exp-check" data-id="' + e.id + '"' + (excluded ? ' checked' : '') + '>' +
       '<span class="rg-exp-icon">' + cat.icon + '</span>' +
       '<span class="rg-exp-info"><span class="rg-exp-cat">' + cat.name + '</span>' +
       (e.note ? '<span class="rg-exp-note">' + e.note + '</span>' : '') + '</span>' +
@@ -2321,12 +2323,12 @@ function renderRgExpList(){
   }).join('');
   const excludedCount = list.filter(e=> rgDraftExcluded.has(e.id)).length;
   const subtotal = '<div class="rg-exp-subtotal">Cuentan: <b>S/ ' + fmt(included) + '</b>' +
-    (excludedCount > 0 ? ' <span class="rg-exp-excnt">(' + excludedCount + ' fuera)</span>' : '') + '</div>';
+    (excludedCount > 0 ? ' <span class="rg-exp-excnt">(' + excludedCount + ' marcados fuera)</span>' : '') + '</div>';
   listEl.innerHTML = rows + subtotal;
   listEl.querySelectorAll('.rg-exp-check').forEach(chk=>{
     chk.addEventListener('change', ()=>{
       const id = chk.getAttribute('data-id');
-      if(chk.checked) rgDraftExcluded.delete(id); else rgDraftExcluded.add(id);
+      if(chk.checked) rgDraftExcluded.add(id); else rgDraftExcluded.delete(id);
       renderRgExpList();
     });
   });
