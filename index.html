@@ -50,6 +50,7 @@
     </div>
     <div class="mt-compare" id="mtCompare"></div>
     <div class="mt-cashback" id="mtCashback" style="display:none"></div>
+    <div class="cd-budget-bar mt-range-bar" id="mtRangeGoalBar" style="display:none" title="Ir a tu límite por rango de fechas"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
       <div class="cd-color-title cd-budget-title" id="mtBudgetTitle">Presupuesto general (opcional)</div>
       <div class="cd-budget-input-wrap">
@@ -105,6 +106,10 @@
     <div class="row">
       <input type="text" id="newCatEmoji" class="emoji-input" placeholder="🏷️" maxlength="2">
       <input type="text" id="newCatName" placeholder="Nombre de la categoría">
+    </div>
+    <div class="group-tag-row" id="catGroupTagRow">
+      <span class="group-tag-label">Grupo (opcional)</span>
+      <div class="group-tag-opts" id="catGroupTagOpts"></div>
     </div>
     <div class="new-cat-actions">
       <button class="btn-cancel" id="cancelNewCat">Cancelar</button>
@@ -400,6 +405,36 @@
       </div>
     </div>
     <div class="sim-list" id="simList"></div>
+  </div>
+</div>
+
+<!-- Límite por rango de fechas (página completa, se abre con el lápiz de la barrita) -->
+<div class="cat-detail-page recurring-page" id="rangeGoalPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="rgBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Límite por rango de fechas</span></div>
+  </div>
+  <div class="edit-card">
+    <div class="rec-hint">Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro). Solo puede haber un límite activo a la vez.</div>
+    <div class="sim-sub" id="rangeGoalTease">Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)</div>
+    <div class="cd-budget-bar" id="rangeGoalBar"></div>
+    <div class="cd-color-title cd-budget-title">Del día... al día...</div>
+    <div class="rg-dates-row">
+      <label class="rg-date-field"><span>Desde</span><input type="date" id="rgFrom" class="date-input"></label>
+      <label class="rg-date-field"><span>Hasta</span><input type="date" id="rgTo" class="date-input"></label>
+    </div>
+    <div class="cd-color-title cd-budget-title">Monto máximo</div>
+    <div class="cd-budget-input-wrap">
+      <span class="cd-budget-cur">S/</span>
+      <input type="number" id="rgAmount" placeholder="0.00" inputmode="decimal" step="0.01">
+      <button class="cd-budget-btn" id="rgSave" type="button">Guardar</button>
+      <button class="cd-budget-btn cd-budget-clear" id="rgClear" type="button">Quitar</button>
+    </div>
+    <div class="rg-exp-block" id="rgExpBlock" style="display:none">
+      <div class="cd-color-title cd-budget-title">Gastos en este rango</div>
+      <div class="rg-exp-hint">Desmarca los que NO quieras que cuenten para este límite (ej. comida, un gasto fijo). Los marcados suman al total.</div>
+      <div class="rg-exp-list" id="rgExpList"></div>
+    </div>
   </div>
 </div>
 

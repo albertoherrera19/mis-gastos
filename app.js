@@ -44,8 +44,9 @@ const CAT_COLOR_KEY = 'timeless_category_colors';
 const BUDGET_KEY = 'timeless_category_budgets';
 const GROUPS_KEY = 'timeless_cat_groups';
 const RECURRING_KEY = 'timeless_recurring';
-const GENERAL_BUDGET_KEY = 'timeless_general_budget';
-const GROUP_BUDGET_KEY = 'timeless_group_budgets';
+const GENERAL_BUDGET_KEY = 'timeless_general_budget'; // legado: presupuesto recurrente (pre-migración a por-mes)
+const GROUP_BUDGET_KEY = 'timeless_group_budgets'; // legado: igual que arriba, por grupo
+const MONTH_BUDGET_KEY = 'timeless_month_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
@@ -54,7 +55,9 @@ const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 const CASHBACK_KEY = 'timeless_cashback';
 const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
 const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables" para el simulador de ahorro
-// En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
+const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
+const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
+const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
 // (En el repo de amigos este flag va en false — diferencia intencional:
 // no se pre-crea ningún grupo, el usuario los crea si quiere.)
 const PRECREATE_GROUPS = false;
@@ -184,8 +187,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-// No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
 
 function exportBackup(){
   const data = {};
@@ -519,6 +521,17 @@ document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   renderCats();
 });
 
+// Grupo elegido en el form de categoría (crear/editar). Selección ÚNICA (a
+// diferencia del "Grupo" de un gasto, que permite varios): una categoría vive
+// en un solo grupo desde acá. null = Ninguno.
+let catFormGroupId = null;
+function renderCatFormGroupTag(){
+  renderGroupTagOpts('catGroupTagOpts', 'catGroupTagRow', catFormGroupId ? [catFormGroupId] : [], (g)=>{
+    catFormGroupId = g; // siempre reemplaza (no alterna) para que sea selección única
+    renderCatFormGroupTag();
+  });
+}
+
 function openCatForm(editCat){
   const form = document.getElementById('newCatForm');
   const nameInp = document.getElementById('newCatName');
@@ -529,18 +542,23 @@ function openCatForm(editCat){
     nameInp.value = editCat.name;
     emojiInp.value = editCat.icon;
     confirmBtn.textContent = 'Guardar cambios';
+    const g = catGroups.find(x=> x.cats.indexOf(editCat.id) !== -1);
+    catFormGroupId = g ? g.id : null;
   } else {
     catFormEditId = null;
     nameInp.value = '';
     emojiInp.value = '';
     confirmBtn.textContent = 'Crear categoría';
+    catFormGroupId = null;
   }
+  renderCatFormGroupTag();
   form.classList.add('open');
   nameInp.focus();
 }
 
 function closeCatForm(){
   catFormEditId = null;
+  catFormGroupId = null;
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
@@ -554,6 +572,7 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
   const emoji = document.getElementById('newCatEmoji').value.trim() || '🏷️';
   if(!name) return;
 
+  let catId = catFormEditId;
   if(catFormEditId){
     const cat = allCategories().find(c=>c.id === catFormEditId);
     if(cat && cat.base){
@@ -568,14 +587,25 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
       }
     }
   } else {
-    customCategories.push({
-      id: 'custom_' + Date.now(),
-      name: name,
-      icon: emoji,
-      base: false
-    });
+    const newCat = { id: 'custom_' + Date.now(), name: name, icon: emoji, base: false };
+    customCategories.push(newCat);
     saveCustomCategories();
+    catId = newCat.id;
   }
+
+  // Sincroniza el grupo de la categoría: la saca de cualquier grupo donde
+  // estuviera y la mete en el elegido (si eligió alguno) — así también se
+  // puede cambiar de grupo desde acá, sin tener que ir al editor del grupo.
+  let groupsChanged = false;
+  catGroups.forEach(g=>{
+    const i = g.cats.indexOf(catId);
+    if(i !== -1 && g.id !== catFormGroupId){ g.cats.splice(i, 1); groupsChanged = true; }
+  });
+  if(catFormGroupId){
+    const g = catGroups.find(x=>x.id === catFormGroupId);
+    if(g && g.cats.indexOf(catId) === -1){ g.cats.push(catId); groupsChanged = true; }
+  }
+  if(groupsChanged) saveCatGroups();
 
   closeCatForm();
   renderCats();
@@ -814,7 +844,7 @@ function saveGroup(){
   }
   saveCatGroups();
   closeGroupEditor();
-  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim();
 }
 
 function deleteGroup(){
@@ -824,7 +854,7 @@ function deleteGroup(){
   if(activeGroup === editingGroupId) activeGroup = null;
   saveCatGroups();
   closeGroupEditor();
-  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim();
 }
 
 function renderAll(){
@@ -834,6 +864,7 @@ function renderAll(){
   renderDonut();
   renderBreakdown();
   renderSimLauncher();
+  renderRangeGoal();
   renderMonths();
   renderFeed();
 }
@@ -877,7 +908,8 @@ function saveCashbackExclude(){
 
 // En esta app (amigos) NO existe el concepto de "producto"/stock: no venden nada,
 // así que ningún gasto es "movimiento de stock" — todo cuenta como gasto real.
-// (En la app personal esto detecta Canjes/Reposición para no contar productos.)
+// (En la app personal esto detecta Canjes/Reposición para no contar productos, y
+// además sincroniza el cashback a Google Sheets para el dashboard.)
 function isCashbackExemptCategory(catId){ return false; }
 function isStockMovement(e){ return false; }
 
@@ -991,6 +1023,14 @@ function renderMtCompare(){
   }
 }
 
+// Tope para navegar meses hacia ADELANTE: se puede ver/presupuestar hasta
+// diciembre del año en curso (para eso sirve poder adelantarse de mes). No se
+// habilita año próximo todavía; eso se revisa cuando de verdad llegue diciembre.
+function isMaxViewMonth(year, month){
+  const now = new Date();
+  return year === now.getFullYear() && month === 11;
+}
+
 // Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
 function renderMonthSwitch(){
   const label = document.getElementById('monthSwitchLabel');
@@ -999,8 +1039,7 @@ function renderMonthSwitch(){
   let full = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'});
   full = full.charAt(0).toUpperCase() + full.slice(1);
   label.textContent = full;
-  const now = new Date();
-  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+  nextBtn.disabled = isMaxViewMonth(viewYear, viewMonth);
 }
 
 document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
@@ -1009,8 +1048,7 @@ document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
   renderAll();
 });
 document.getElementById('monthNextBtn').addEventListener('click', ()=>{
-  const now = new Date();
-  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no se puede ir al futuro
+  if(isMaxViewMonth(viewYear, viewMonth)) return;
   viewMonth++;
   if(viewMonth > 11){ viewMonth = 0; viewYear++; }
   renderAll();
@@ -1129,13 +1167,39 @@ function updateDonutCenter(rows, grandTotal){
   if(pctEl) pctEl.textContent = '';
 }
 
-function renderBreakdown(){
+// A diferencia del donut (que solo dibuja categorías CON gasto), esta lista
+// siempre incluye TODAS las categorías, aunque no tengan gasto este mes —
+// así se puede entrar a cualquiera (aunque esté en S/ 0.00) para configurar
+// o editar su presupuesto, incluso en meses futuros sin datos todavía.
+function currentMonthByCategoryFull(){
   const {rows, grandTotal} = currentMonthByCategory();
-  const container = document.getElementById('breakdown');
-  if(grandTotal === 0){
-    container.innerHTML = '<div class="empty">Aún no registras gastos este mes.</div>';
-    return;
+  const withData = {};
+  rows.forEach(r=>{ withData[r.id] = r; });
+  // Si hay un grupo activo (Timeless/Personal/etc.), el "completo" debe ser
+  // completo DENTRO de ese grupo (sus categorías), no todas las de la app —
+  // si no, al filtrar por grupo se mezclaban categorías de otros grupos.
+  // Se incluye también cualquier categoría que YA tenga gasto en `rows` (por
+  // si un gasto quedó etiquetado a mano a este grupo sin que su categoría
+  // esté oficialmente en group.cats), para no perder ese dato.
+  let catIds;
+  if(activeGroup){
+    const g = catGroups.find(x=>x.id === activeGroup);
+    catIds = g ? g.cats.slice() : [];
+    Object.keys(withData).forEach(id=>{ if(catIds.indexOf(id) === -1) catIds.push(id); });
+  } else {
+    catIds = allCategories().map(c=>c.id);
   }
+  const all = catIds.map(id=>{
+    if(withData[id]) return withData[id];
+    const cat = catById(id) || {id:id, icon:'🗂️', name:'Otros'};
+    return {id:id, icon:cat.icon, name:cat.name, total:0, color:catColor(id)};
+  }).sort((a,b)=> b.total - a.total);
+  return {rows: all, grandTotal};
+}
+
+function renderBreakdown(){
+  const {rows, grandTotal} = currentMonthByCategoryFull();
+  const container = document.getElementById('breakdown');
 
   // Mes anterior al que se está viendo, para el indicador ▲/▼ por categoría.
   // Compara solo el mismo tramo de días en ambos meses (ver compareCutoffDay).
@@ -1170,7 +1234,9 @@ function renderBreakdown(){
    de barras de ahorro mes a mes. Es 100% local y separado: NO toca los totales
    reales, ni Sheets, ni el dashboard. El marcado se guarda por gasto (persiste
    entre sesiones y meses). Los productos (reposición/canjes) nunca cuentan aquí. */
-let avoidableIds = [];       // ids de gastos marcados evitables (persistido)
+let avoidableIds = [];       // ids de gastos marcados evitables a mano (categorías SIN la regla automática)
+let simAutoAvoidCats = [];   // ids de categoría marcadas "siempre innecesaria": todo gasto (existente o nuevo) es evitable por defecto
+let avoidableExceptions = []; // ids de gastos que SÍ son necesarios pese a la regla automática de su categoría
 let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
 let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut y las barras
 let simActiveCat = null;        // categoría seleccionada en el donut del simulador (null = ninguna)
@@ -1183,11 +1249,78 @@ function loadAvoidable(){
 function saveAvoidable(){
   try{ localStorage.setItem(AVOIDABLE_KEY, JSON.stringify(avoidableIds)); }catch(e){}
 }
-function isAvoidableExpense(e){ return avoidableIds.indexOf(e.id) !== -1; }
+function loadSimAutoAvoidCats(){
+  try{ simAutoAvoidCats = JSON.parse(localStorage.getItem(SIM_AUTO_AVOID_KEY)) || []; }
+  catch(e){ simAutoAvoidCats = []; }
+}
+function saveSimAutoAvoidCats(){
+  try{ localStorage.setItem(SIM_AUTO_AVOID_KEY, JSON.stringify(simAutoAvoidCats)); }catch(e){}
+}
+function loadAvoidableExceptions(){
+  try{ avoidableExceptions = JSON.parse(localStorage.getItem(AVOIDABLE_EXCEPT_KEY)) || []; }
+  catch(e){ avoidableExceptions = []; }
+}
+function saveAvoidableExceptions(){
+  try{ localStorage.setItem(AVOIDABLE_EXCEPT_KEY, JSON.stringify(avoidableExceptions)); }catch(e){}
+}
+
+// Si la categoría del gasto tiene la regla "siempre innecesaria" activa, es
+// evitable por defecto salvo que esté en la lista de excepciones (lo marcaste
+// como necesario a mano). Si no tiene la regla, funciona como antes: solo es
+// evitable si lo marcaste a mano (avoidableIds).
+function isAvoidableExpense(e){
+  if(simAutoAvoidCats.indexOf(e.category) !== -1) return avoidableExceptions.indexOf(e.id) === -1;
+  return avoidableIds.indexOf(e.id) !== -1;
+}
+
 function toggleAvoidable(id){
-  const i = avoidableIds.indexOf(id);
-  if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
-  saveAvoidable();
+  const e = expenses.find(x=>x.id===id);
+  if(e && simAutoAvoidCats.indexOf(e.category) !== -1){
+    // Categoría con regla automática: tocar un gasto puntual lo excluye (o lo
+    // vuelve a incluir) de esa regla, sin apagar la regla para el resto.
+    const i = avoidableExceptions.indexOf(id);
+    if(i === -1) avoidableExceptions.push(id); else avoidableExceptions.splice(i, 1);
+    saveAvoidableExceptions();
+  } else {
+    const i = avoidableIds.indexOf(id);
+    if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
+    saveAvoidable();
+  }
+  renderSim();
+}
+
+// Activa/desactiva la regla "toda esta categoría es innecesaria". Al activar,
+// todo gasto de esa categoría (los de ahora Y los que agregues después) se
+// marca evitable solo; si desmarcas uno a mano queda como excepción (no vuelve
+// a marcarse por más gastos nuevos que entren). Al desactivar, se "congela" el
+// estado actual (lo que era evitable por la regla pasa a marcado a mano) para
+// no perder nada de golpe, y la categoría vuelve al modo manual de siempre.
+function simToggleAutoAvoidCat(catId){
+  const idx = simAutoAvoidCats.indexOf(catId);
+  if(idx === -1){
+    simAutoAvoidCats.push(catId);
+    // El modo automático se basa solo en la lista de excepciones; limpia
+    // marcas manuales sueltas de esta categoría para no dejar datos huérfanos.
+    avoidableIds = avoidableIds.filter(id=>{
+      const e = expenses.find(x=>x.id===id);
+      return !e || e.category !== catId;
+    });
+    saveAvoidable();
+  } else {
+    simAutoAvoidCats.splice(idx, 1);
+    expenses.forEach(e=>{
+      if(e.category !== catId) return;
+      const wasAvoidable = avoidableExceptions.indexOf(e.id) === -1; // regla activa = evitable salvo excepción
+      if(wasAvoidable && avoidableIds.indexOf(e.id) === -1) avoidableIds.push(e.id);
+    });
+    avoidableExceptions = avoidableExceptions.filter(id=>{
+      const e = expenses.find(x=>x.id===id);
+      return !e || e.category !== catId;
+    });
+    saveAvoidable();
+    saveAvoidableExceptions();
+  }
+  saveSimAutoAvoidCats();
   renderSim();
 }
 
@@ -1246,8 +1379,7 @@ function renderSimMonthNav(){
   const nextBtn = document.getElementById('simMonthNext');
   if(!label || !nextBtn) return;
   label.textContent = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
-  const now = new Date();
-  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+  nextBtn.disabled = isMaxViewMonth(viewYear, viewMonth);
 }
 
 // Chips "Ver: Todos / Timeless / Personal" dentro de la página.
@@ -1455,6 +1587,7 @@ function renderSim(){
     const catTotal = items.reduce((s,e)=> s + e.amount, 0);
     const catAvoid = items.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
     const open = simOpenCats.has(catId);
+    const isAuto = simAutoAvoidCats.indexOf(catId) !== -1;
     const allMarked = items.every(isAvoidableExpense);
     const rows = items.map(e=>{
       const marked = isAvoidableExpense(e);
@@ -1467,7 +1600,14 @@ function renderSim(){
                '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
              '</div>';
     }).join('');
-    const selAll = '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>';
+    // Sin la regla automática: "Marcar/Quitar todos" (de un solo golpe, solo lo
+    // que hay AHORA) + botón para activar la regla. Con la regla activa: un
+    // solo badge que la muestra prendida y permite apagarla; los gastos NUEVOS
+    // de esta categoría se marcarán solos mientras siga activa.
+    const actions = isAuto
+      ? '<button class="sim-auto-btn on" type="button" data-cat="' + catId + '">🔁 Categoría innecesaria — toca para quitar la regla</button>'
+      : '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>' +
+        '<button class="sim-auto-btn" type="button" data-cat="' + catId + '">🔁 Toda esta categoría es innecesaria</button>';
     const avoidTag = catAvoid > 0.005 ? '<span class="sim-cat-hd-avoid">−S/ ' + fmt(catAvoid) + '</span>' : '';
     return '<div class="sim-cat-group' + (open ? ' open' : '') + '" data-cat="' + catId + '">' +
              '<div class="sim-cat-head">' +
@@ -1477,7 +1617,10 @@ function renderSim(){
                avoidTag +
                '<span class="sim-cat-hd-total">S/ ' + fmt(catTotal) + '</span>' +
              '</div>' +
-             '<div class="sim-cat-items">' + selAll + rows + '</div>' +
+             '<div class="sim-cat-items">' +
+               (isAuto ? '<div class="sim-auto-hint">Los gastos nuevos de esta categoría se marcan evitables solos. Toca uno abajo si alguno sí fue necesario.</div>' : '') +
+               '<div class="sim-cat-actions">' + actions + '</div>' + rows +
+             '</div>' +
            '</div>';
   }).join('');
 
@@ -1502,6 +1645,12 @@ function renderSim(){
         const group = btn.closest('.sim-cat-group');
         const ids = Array.from(group.querySelectorAll('.sim-item')).map(el=>el.getAttribute('data-id'));
         simSelectAllCat(ids);
+      });
+    });
+    listBox.querySelectorAll('.sim-auto-btn').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        simToggleAutoAvoidCat(btn.getAttribute('data-cat'));
       });
     });
   }
@@ -1531,8 +1680,7 @@ document.getElementById('simMonthPrev').addEventListener('click', ()=>{
   renderSim();
 });
 document.getElementById('simMonthNext').addEventListener('click', ()=>{
-  const now = new Date();
-  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no ir al futuro
+  if(isMaxViewMonth(viewYear, viewMonth)) return;
   viewMonth++;
   if(viewMonth > 11){ viewMonth = 0; viewYear++; }
   renderAll();
@@ -1816,8 +1964,10 @@ function openCategoryDetail(catId){
   renderCdColorSwatches(catId);
   document.getElementById('cdColorPanel').classList.remove('open');
 
-  // Presupuesto de la categoría.
-  document.getElementById('cdBudgetInput').value = categoryBudgets[catId] || '';
+  // Presupuesto de la categoría. Ojo: 0 es un presupuesto real ("no gastar nada
+  // en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
+  const catBudget = categoryBudgets[catId];
+  document.getElementById('cdBudgetInput').value = (catBudget != null) ? catBudget : '';
   renderBudgetBar(catId, monthTotal);
 
   const page = document.getElementById('catDetailPage');
@@ -1930,26 +2080,45 @@ function saveCategoryBudgets(){
   try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
 }
 
-/* ----- Presupuesto general del mes y por grupo (opcional) ----- */
-let generalBudget = null;   // número o null
-let groupBudgets = {};      // { groupId: monto }
+/* ----- Presupuesto general del mes y por grupo (opcional) -----
+   Es POR MES: lo que pongas viendo septiembre solo aplica a septiembre. Cada
+   mes guarda su propio valor (general y por grupo) en monthBudgets, bajo una
+   llave 'YYYY-MM'. Antes era un solo valor recurrente para todos los meses;
+   ese valor legado se migra una sola vez al mes real en que se cargue la app
+   (ver migrateLegacyRecurringBudgets). */
+let monthBudgets = {}; // { 'YYYY-MM': { general: monto, [groupId]: monto } }
 
-function loadGeneralBudget(){
-  const v = parseFloat(localStorage.getItem(GENERAL_BUDGET_KEY));
-  generalBudget = (v > 0) ? v : null;
+function budgetMonthKey(year, month){
+  return year + '-' + String(month + 1).padStart(2, '0');
 }
-function saveGeneralBudget(){
-  try{
-    if(generalBudget > 0) localStorage.setItem(GENERAL_BUDGET_KEY, String(generalBudget));
-    else localStorage.removeItem(GENERAL_BUDGET_KEY);
-  }catch(e){}
+function loadMonthBudgets(){
+  try{ monthBudgets = JSON.parse(localStorage.getItem(MONTH_BUDGET_KEY)) || {}; }
+  catch(e){ monthBudgets = {}; }
+  migrateLegacyRecurringBudgets();
 }
-function loadGroupBudgets(){
-  try{ groupBudgets = JSON.parse(localStorage.getItem(GROUP_BUDGET_KEY)) || {}; }
-  catch(e){ groupBudgets = {}; }
+function saveMonthBudgets(){
+  try{ localStorage.setItem(MONTH_BUDGET_KEY, JSON.stringify(monthBudgets)); }catch(e){}
 }
-function saveGroupBudgets(){
-  try{ localStorage.setItem(GROUP_BUDGET_KEY, JSON.stringify(groupBudgets)); }catch(e){}
+// Migración única: el presupuesto recurrente viejo (un solo valor para todos
+// los meses) se traslada al mes real de hoy, y se borran las llaves viejas
+// para que esto no se repita en cada carga.
+function migrateLegacyRecurringBudgets(){
+  const legacyGeneral = parseFloat(localStorage.getItem(GENERAL_BUDGET_KEY));
+  let legacyGroups = null;
+  try{ legacyGroups = JSON.parse(localStorage.getItem(GROUP_BUDGET_KEY)); }catch(e){ legacyGroups = null; }
+  const hasLegacyGroups = legacyGroups && Object.keys(legacyGroups).length > 0;
+  if(!(legacyGeneral > 0) && !hasLegacyGroups) return;
+  const now = new Date();
+  const mk = budgetMonthKey(now.getFullYear(), now.getMonth());
+  if(!monthBudgets[mk]) monthBudgets[mk] = {};
+  if(legacyGeneral > 0 && monthBudgets[mk].general === undefined) monthBudgets[mk].general = legacyGeneral;
+  if(hasLegacyGroups){
+    Object.keys(legacyGroups).forEach(gid=>{
+      if(legacyGroups[gid] > 0 && monthBudgets[mk][gid] === undefined) monthBudgets[mk][gid] = legacyGroups[gid];
+    });
+  }
+  saveMonthBudgets();
+  try{ localStorage.removeItem(GENERAL_BUDGET_KEY); localStorage.removeItem(GROUP_BUDGET_KEY); }catch(e){}
 }
 // El presupuesto que aplica según la pestaña activa: general (Predeterminado)
 // o el del grupo activo.
@@ -1960,26 +2129,34 @@ function currentBudgetContext(){
   }
   return {isGroup:false, key:null, label:'general'};
 }
+// Siempre lee/escribe en el mes que se está viendo (viewYear/viewMonth).
 function currentBudgetValue(){
   const ctx = currentBudgetContext();
-  return ctx.isGroup ? (groupBudgets[ctx.key] || null) : generalBudget;
+  const bucket = monthBudgets[budgetMonthKey(viewYear, viewMonth)];
+  if(!bucket) return null;
+  const key = ctx.isGroup ? ctx.key : 'general';
+  return (bucket[key] > 0) ? bucket[key] : null;
 }
 function setCurrentBudgetValue(v){
   const ctx = currentBudgetContext();
-  if(ctx.isGroup){
-    if(v > 0) groupBudgets[ctx.key] = v; else delete groupBudgets[ctx.key];
-    saveGroupBudgets();
-  } else {
-    generalBudget = (v > 0) ? v : null;
-    saveGeneralBudget();
-  }
+  const mk = budgetMonthKey(viewYear, viewMonth);
+  const key = ctx.isGroup ? ctx.key : 'general';
+  if(!monthBudgets[mk]) monthBudgets[mk] = {};
+  if(v > 0) monthBudgets[mk][key] = v;
+  else delete monthBudgets[mk][key];
+  if(Object.keys(monthBudgets[mk]).length === 0) delete monthBudgets[mk];
+  saveMonthBudgets();
 }
-// Sincroniza el título/valor del panel con el contexto actual (general o grupo).
+// Sincroniza el título/valor del panel con el contexto actual (general o grupo)
+// y el mes que se está viendo, para que quede claro que el presupuesto es solo
+// para ESE mes.
 function renderMtBudgetPanel(){
   const ctx = currentBudgetContext();
   const title = document.getElementById('mtBudgetTitle');
   const input = document.getElementById('mtBudgetInput');
-  if(title) title.textContent = ctx.isGroup ? ('Presupuesto de "' + ctx.label + '" (opcional)') : 'Presupuesto general (opcional)';
+  const monthName = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'}));
+  const base = ctx.isGroup ? ('Presupuesto de "' + ctx.label + '"') : 'Presupuesto general';
+  if(title) title.textContent = base + ' de ' + monthName + ' (opcional)';
   if(input) input.value = currentBudgetValue() || '';
 }
 // Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
@@ -2021,6 +2198,181 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   document.getElementById('mtBudgetInput').value = '';
   renderMonthTotal();
 });
+
+/* ----- Límite por rango de fechas (opcional) -----
+   A diferencia del presupuesto general/por categoría (siempre mes calendario),
+   este es un LÍMITE PUNTUAL entre dos fechas cualquiera, aunque crucen de un
+   mes a otro (ej. ciclo de tarjeta: 25 de un mes al 12 del siguiente). Solo
+   uno activo a la vez; se reemplaza/borra cuando ya no aplica. Cuenta el gasto
+   real (sin productos), sin importar el grupo activo. Además, el usuario puede
+   EXCLUIR gastos puntuales del rango (ej. comida, un gasto fijo) para que no
+   sumen a este límite: sus ids se guardan en `excluded`. */
+let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number, excluded:[ids]} | null
+let rgDraftExcluded = new Set(); // borrador de ids excluidos mientras se edita la página
+function loadRangeGoal(){
+  try{ rangeGoal = JSON.parse(localStorage.getItem(RANGE_GOAL_KEY)) || null; }
+  catch(e){ rangeGoal = null; }
+  if(rangeGoal && !Array.isArray(rangeGoal.excluded)) rangeGoal.excluded = [];
+}
+function saveRangeGoal(){
+  try{
+    if(rangeGoal) localStorage.setItem(RANGE_GOAL_KEY, JSON.stringify(rangeGoal));
+    else localStorage.removeItem(RANGE_GOAL_KEY);
+  }catch(e){}
+}
+// Gastos reales (sin productos) dentro de una ventana de fechas, del más nuevo
+// al más viejo. Sirve tanto para el cálculo del total como para la lista editable.
+function rangeExpensesInWindow(fromStr, toStr){
+  if(!fromStr || !toStr) return [];
+  const from = new Date(fromStr + 'T00:00:00');
+  const to = new Date(toStr + 'T23:59:59');
+  return expenses
+    .filter(e=>{ const d = new Date(e.date); return d >= from && d <= to && !isStockMovement(e); })
+    .sort((a,b)=> new Date(b.date) - new Date(a.date));
+}
+function rangeGoalSpent(){
+  if(!rangeGoal) return 0;
+  const excluded = rangeGoal.excluded || [];
+  return rangeExpensesInWindow(rangeGoal.from, rangeGoal.to)
+    .filter(e=> excluded.indexOf(e.id) === -1)
+    .reduce((s,e)=> s + e.amount, 0);
+}
+function renderRangeGoal(){
+  const tease = document.getElementById('rangeGoalTease');
+  const bar = document.getElementById('rangeGoalBar');
+  const mtBar = document.getElementById('mtRangeGoalBar');
+  if(!tease) return;
+  document.getElementById('rgFrom').value = rangeGoal ? rangeGoal.from : '';
+  document.getElementById('rgTo').value = rangeGoal ? rangeGoal.to : '';
+  document.getElementById('rgAmount').value = rangeGoal ? rangeGoal.amount : '';
+  renderRgExpList();
+  if(!rangeGoal){
+    tease.textContent = 'Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
+    if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
+    if(mtBar){
+      mtBar.style.display = 'block';
+      mtBar.className = 'cd-budget-bar mt-range-bar show';
+      mtBar.innerHTML = '<div class="bb-label"><span>📅 Límite por rango de fechas</span>' +
+        '<span class="bb-status">✎ Configurar</span></div>';
+    }
+    return;
+  }
+  const spent = rangeGoalSpent();
+  const fromLbl = new Date(rangeGoal.from + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+  const toLbl = new Date(rangeGoal.to + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+  tease.textContent = 'Del ' + fromLbl + ' al ' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount);
+  if(bar){
+    const pct = Math.min(spent / rangeGoal.amount * 100, 100);
+    const over = spent > rangeGoal.amount;
+    let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
+    const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
+    bar.className = 'cd-budget-bar show ' + state;
+    bar.innerHTML =
+      '<div class="bb-label"><span>S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
+  // Espejo bajo el total del mes: no depende del mes que se esté viendo (viewYear/
+  // viewMonth), siempre muestra el MISMO límite de rango sin importar a qué mes navegue.
+  if(mtBar){
+    const pct = Math.min(spent / rangeGoal.amount * 100, 100);
+    const over = spent > rangeGoal.amount;
+    let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
+    const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
+    mtBar.style.display = 'block';
+    mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
+    mtBar.innerHTML =
+      '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
+      '<span class="bb-status">✎ ' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
+}
+// Lista editable de gastos dentro del rango que se está configurando (lee las
+// fechas de los inputs, no del rangeGoal guardado, para que se actualice en vivo
+// al cambiar fechas). Cada gasto tiene un check: marcado = cuenta al límite,
+// desmarcado = excluido. Muestra abajo el subtotal de lo que sí cuenta.
+function renderRgExpList(){
+  const block = document.getElementById('rgExpBlock');
+  const listEl = document.getElementById('rgExpList');
+  if(!block || !listEl) return;
+  const from = document.getElementById('rgFrom').value;
+  const to = document.getElementById('rgTo').value;
+  const valid = from && to && new Date(from + 'T00:00:00') <= new Date(to + 'T00:00:00');
+  if(!valid){ block.style.display = 'none'; listEl.innerHTML = ''; return; }
+  const list = rangeExpensesInWindow(from, to);
+  block.style.display = 'block';
+  if(list.length === 0){
+    listEl.innerHTML = '<div class="rg-exp-empty">No hay gastos en este rango todavía.</div>';
+    return;
+  }
+  let included = 0;
+  const rows = list.map(e=>{
+    const excluded = rgDraftExcluded.has(e.id);
+    if(!excluded) included += e.amount;
+    const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
+    const dateStr = new Date(e.date).toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+    return '<label class="rg-exp-item' + (excluded ? ' off' : '') + '">' +
+      '<input type="checkbox" class="rg-exp-check" data-id="' + e.id + '"' + (excluded ? '' : ' checked') + '>' +
+      '<span class="rg-exp-icon">' + cat.icon + '</span>' +
+      '<span class="rg-exp-info"><span class="rg-exp-cat">' + cat.name + '</span>' +
+      (e.note ? '<span class="rg-exp-note">' + e.note + '</span>' : '') + '</span>' +
+      '<span class="rg-exp-right"><span class="rg-exp-amt">S/ ' + fmt(e.amount) + '</span>' +
+      '<span class="rg-exp-date">' + dateStr + '</span></span></label>';
+  }).join('');
+  const excludedCount = list.filter(e=> rgDraftExcluded.has(e.id)).length;
+  const subtotal = '<div class="rg-exp-subtotal">Cuentan: <b>S/ ' + fmt(included) + '</b>' +
+    (excludedCount > 0 ? ' <span class="rg-exp-excnt">(' + excludedCount + ' fuera)</span>' : '') + '</div>';
+  listEl.innerHTML = rows + subtotal;
+  listEl.querySelectorAll('.rg-exp-check').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const id = chk.getAttribute('data-id');
+      if(chk.checked) rgDraftExcluded.delete(id); else rgDraftExcluded.add(id);
+      renderRgExpList();
+    });
+  });
+}
+function openRangeGoalPage(){
+  const page = document.getElementById('rangeGoalPage');
+  // El borrador de excluidos arranca desde lo que ya estaba guardado.
+  rgDraftExcluded = new Set(rangeGoal && rangeGoal.excluded ? rangeGoal.excluded : []);
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+  renderRangeGoal();
+}
+function closeRangeGoalPage(){
+  const page = document.getElementById('rangeGoalPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+}
+document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
+document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
+// Al cambiar las fechas, refresca la lista de gastos del rango en vivo.
+document.getElementById('rgFrom').addEventListener('change', renderRgExpList);
+document.getElementById('rgTo').addEventListener('change', renderRgExpList);
+document.getElementById('rgSave').addEventListener('click', ()=>{
+  const from = document.getElementById('rgFrom').value;
+  const to = document.getElementById('rgTo').value;
+  const amount = parseFloat(document.getElementById('rgAmount').value);
+  if(!from || !to || !(amount > 0)){ alert('Completa fecha inicio, fecha fin y un monto válido.'); return; }
+  if(new Date(from + 'T00:00:00') > new Date(to + 'T00:00:00')){ alert('La fecha de inicio debe ser antes que la fecha final.'); return; }
+  // Solo guardamos como excluidos los ids que de verdad caen en la ventana final.
+  const idsInWindow = rangeExpensesInWindow(from, to).map(e=>e.id);
+  const excluded = idsInWindow.filter(id=> rgDraftExcluded.has(id));
+  rangeGoal = {from: from, to: to, amount: amount, excluded: excluded};
+  rgDraftExcluded = new Set(excluded);
+  saveRangeGoal();
+  renderRangeGoal();
+});
+document.getElementById('rgClear').addEventListener('click', ()=>{
+  rangeGoal = null;
+  rgDraftExcluded = new Set();
+  saveRangeGoal();
+  renderRangeGoal();
+});
+
 // Compartido por el botón 📊 del header y el de dentro de cada categoría.
 function toggleShowCatCompare(){
   showCatCompare = !showCatCompare;
@@ -2039,29 +2391,32 @@ function toggleShowCatCompare(){
 document.getElementById('mtCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 
-// Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
+// Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto
+// configurado). Un límite de 0 SÍ es un presupuesto real ("no gastar nada en
+// esta categoría"): se distingue de "sin presupuesto" (undefined), y se dibuja
+// sin dividir entre cero.
 function renderBudgetBar(catId, spent){
   const bar = document.getElementById('cdBudgetBar');
   if(!bar) return;
   const limit = categoryBudgets[catId];
-  if(!(limit > 0)){
+  if(limit === undefined){
     bar.classList.remove('show');
     bar.innerHTML = '';
     return;
   }
-  const pct = spent / limit * 100;
-  const clamped = Math.min(pct, 100);
+  const over = spent > limit;
+  const pct = limit > 0 ? Math.min(spent / limit * 100, 100) : (spent > 0 ? 100 : 0);
   let state = '';
-  if(pct >= 100) state = 'over';
-  else if(pct >= 80) state = 'warn';
-  const statusTxt = pct >= 100
-    ? 'Superado (' + Math.round(pct) + '%)'
+  if(over) state = 'over';
+  else if(limit > 0 && pct >= 80) state = 'warn';
+  const statusTxt = over
+    ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
     : Math.round(pct) + '%';
   bar.className = 'cd-budget-bar show ' + state;
   bar.innerHTML =
     '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
     '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+    '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
 }
 function themeAccentHex(){
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
@@ -2124,9 +2479,14 @@ function currentCdMonthTotal(){
 }
 document.getElementById('cdBudgetSave').addEventListener('click', ()=>{
   if(!cdCatId) return;
-  const v = parseFloat(document.getElementById('cdBudgetInput').value);
-  if(v > 0){ categoryBudgets[cdCatId] = v; }
-  else { delete categoryBudgets[cdCatId]; }
+  const raw = document.getElementById('cdBudgetInput').value;
+  // Campo vacío = sin presupuesto (usa "Quitar" para eso). Un número válido
+  // ≥ 0 se guarda tal cual: poner 0 es un tope real de "no gastar nada".
+  if(raw.trim() === ''){ delete categoryBudgets[cdCatId]; }
+  else {
+    const v = parseFloat(raw);
+    if(!isNaN(v) && v >= 0) categoryBudgets[cdCatId] = v;
+  }
   saveCategoryBudgets();
   renderBudgetBar(cdCatId, currentCdMonthTotal());
   document.getElementById('cdColorPanel').classList.remove('open');
@@ -3167,14 +3527,16 @@ loadDeletedBaseCats();
 loadCatOrder();
 loadCategoryColors();
 loadCategoryBudgets();
-loadGeneralBudget();
-loadGroupBudgets();
+loadMonthBudgets();
 loadCatGroups();
 loadRecurring();
 loadReminders();
 loadCashback();
 loadCashbackExclude();
 loadAvoidable();
+loadSimAutoAvoidCats();
+loadAvoidableExceptions();
+loadRangeGoal();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
