@@ -28,7 +28,7 @@
     </div>
     <div class="header-right">
       <div class="header-btns">
-        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
+        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁<span class="rec-alert-badge" id="recAlertBadge" style="display:none">!</span></div>
         <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
         <div class="gear-btn" id="gearBtn">⚙️</div>
       </div>
@@ -101,12 +101,15 @@
   </div>
   <div class="cats-drag-hint" id="catsDragHint" style="display:none">✋ Mantén presionada una categoría y arrástrala para reordenar.</div>
   <div class="cats" id="catGrid"></div>
+  <button type="button" class="freq-note-btn" id="freqNoteBtn" style="display:none">🕘 <span id="freqNoteBtnText"></span></button>
 
   <div class="new-cat-form" id="newCatForm">
     <div class="row">
       <input type="text" id="newCatEmoji" class="emoji-input" placeholder="🏷️" maxlength="2">
       <input type="text" id="newCatName" placeholder="Nombre de la categoría">
     </div>
+    <input type="text" id="newCatFreqNote" placeholder="Nota frecuente (opcional) — ej: ISIL" maxlength="60">
+    <div class="date-hint freq-note-form-hint">Sale como botón rápido para llenar la Nota al elegir esta categoría en un gasto.</div>
     <div class="group-tag-row" id="catGroupTagRow">
       <span class="group-tag-label">Grupo (opcional)</span>
       <div class="group-tag-opts" id="catGroupTagOpts"></div>
@@ -209,6 +212,13 @@
       <button class="cd-budget-btn" id="cdBudgetSave" type="button">Guardar</button>
       <button class="cd-budget-btn cd-budget-clear" id="cdBudgetClear" type="button">Quitar</button>
     </div>
+    <div class="cd-color-title cd-budget-title">Nota frecuente (opcional)</div>
+    <div class="cd-budget-input-wrap">
+      <input type="text" id="cdFreqNoteInput" placeholder="ej: ISIL" maxlength="60">
+      <button class="cd-budget-btn" id="cdFreqNoteSave" type="button">Guardar</button>
+      <button class="cd-budget-btn cd-budget-clear" id="cdFreqNoteClear" type="button">Quitar</button>
+    </div>
+    <div class="date-hint cd-freq-note-hint">Sale como botón rápido para llenar la Nota al elegir esta categoría en un gasto.</div>
   </div>
   <div class="cd-total">
     <div class="cd-total-main">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
@@ -300,14 +310,18 @@
         </div>
         <input type="text" id="recName" placeholder="Nombre — ej: Netflix">
         <label class="date-row">
-          <span class="date-label">📅 Día del mes</span>
-          <input type="number" id="recDay" min="1" max="31" placeholder="5" class="rec-day-input">
+          <span class="date-label">📅 Día(s) de pago</span>
+          <span class="rec-day-range">
+            <input type="number" id="recDayFrom" min="1" max="31" placeholder="ej: 5" class="rec-day-input">
+            <span class="rec-day-sep">–</span>
+            <input type="number" id="recDayTo" min="1" max="31" placeholder="ej: 8" class="rec-day-input">
+          </span>
         </label>
+        <div class="date-hint rec-day-hint">Déjalo vacío si no tiene un día fijo. Si pagas en un rango de días, pon el primero y el último.</div>
         <div class="cg-cats-title">Categoría</div>
         <div class="cats" id="recCatGrid"></div>
-        <button class="save-btn" id="recSaveBtn">Guardar</button>
         <button class="group-delete-btn" id="recDeleteBtn" type="button">Eliminar</button>
-        <button class="group-delete-btn" id="recCancelBtn" type="button">Cancelar</button>
+        <button class="group-delete-btn" id="recCancelBtn" type="button">Listo</button>
       </div>
     </div>
 

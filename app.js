@@ -58,6 +58,7 @@ const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables
 const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
+const FREQ_NOTE_KEY = 'timeless_freq_notes'; // nota frecuente por categoría, para llenar la Nota de un toque
 // (En el repo de amigos este flag va en false — diferencia intencional:
 // no se pre-crea ningún grupo, el usuario los crea si quiere.)
 const PRECREATE_GROUPS = false;
@@ -70,6 +71,15 @@ let lastAccentTheme = 'azul';
 
 let catOverrides = {};   // {catId: {name, icon}} — ediciones sobre categorías base o personalizadas
 let deletedBaseCats = []; // ids de BASE_CATEGORIES que el usuario eliminó en este dispositivo
+let catFrequentNotes = {}; // {catId: texto} — nota frecuente por categoría (botón rápido al agregar un gasto)
+
+function loadFrequentNotes(){
+  try{ catFrequentNotes = JSON.parse(localStorage.getItem(FREQ_NOTE_KEY)) || {}; }
+  catch(e){ catFrequentNotes = {}; }
+}
+function saveFrequentNotes(){
+  try{ localStorage.setItem(FREQ_NOTE_KEY, JSON.stringify(catFrequentNotes)); }catch(e){}
+}
 
 function loadCatOverrides(){
   try{ catOverrides = JSON.parse(localStorage.getItem(CAT_OVERRIDE_KEY)) || {}; }
@@ -187,7 +197,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -378,6 +388,7 @@ function renderCats(){
   if(dragHint) dragHint.style.display = catsEditMode ? '' : 'none';
 
   updateCatNoteHint();
+  renderFreqNoteBtn();
 }
 
 /* ---------- Arrastrar para reordenar categorías (solo en modo Editar) ----------
@@ -516,6 +527,25 @@ document.querySelectorAll('#stockOnlyOpts .gt-opt').forEach(el=>{
   });
 });
 
+// Botón rápido para llenar la Nota con el texto frecuente de la categoría
+// elegida (ej: "ISIL" en Pasajes) — se configura en "editar categoría".
+function renderFreqNoteBtn(){
+  const btn = document.getElementById('freqNoteBtn');
+  if(!btn) return;
+  const cat = selectedCat ? catById(selectedCat) : null;
+  const note = cat ? catFrequentNotes[cat.id] : null;
+  if(note){
+    document.getElementById('freqNoteBtnText').textContent = note;
+    btn.style.display = '';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+document.getElementById('freqNoteBtn').addEventListener('click', ()=>{
+  document.getElementById('noteInput').value = document.getElementById('freqNoteBtnText').textContent;
+  validateForm();
+});
+
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   catsEditMode = !catsEditMode;
   renderCats();
@@ -536,11 +566,13 @@ function openCatForm(editCat){
   const form = document.getElementById('newCatForm');
   const nameInp = document.getElementById('newCatName');
   const emojiInp = document.getElementById('newCatEmoji');
+  const freqNoteInp = document.getElementById('newCatFreqNote');
   const confirmBtn = document.getElementById('confirmNewCat');
   if(editCat){
     catFormEditId = editCat.id;
     nameInp.value = editCat.name;
     emojiInp.value = editCat.icon;
+    freqNoteInp.value = catFrequentNotes[editCat.id] || '';
     confirmBtn.textContent = 'Guardar cambios';
     const g = catGroups.find(x=> x.cats.indexOf(editCat.id) !== -1);
     catFormGroupId = g ? g.id : null;
@@ -548,6 +580,7 @@ function openCatForm(editCat){
     catFormEditId = null;
     nameInp.value = '';
     emojiInp.value = '';
+    freqNoteInp.value = '';
     confirmBtn.textContent = 'Crear categoría';
     catFormGroupId = null;
   }
@@ -562,6 +595,7 @@ function closeCatForm(){
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
+  document.getElementById('newCatFreqNote').value = '';
   document.getElementById('confirmNewCat').textContent = 'Crear categoría';
 }
 
@@ -606,6 +640,10 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
     if(g && g.cats.indexOf(catId) === -1){ g.cats.push(catId); groupsChanged = true; }
   }
   if(groupsChanged) saveCatGroups();
+
+  const freqNote = document.getElementById('newCatFreqNote').value.trim();
+  if(freqNote) catFrequentNotes[catId] = freqNote; else delete catFrequentNotes[catId];
+  saveFrequentNotes();
 
   closeCatForm();
   renderCats();
@@ -1968,6 +2006,7 @@ function openCategoryDetail(catId){
   // en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
   const catBudget = categoryBudgets[catId];
   document.getElementById('cdBudgetInput').value = (catBudget != null) ? catBudget : '';
+  document.getElementById('cdFreqNoteInput').value = catFrequentNotes[catId] || '';
   renderBudgetBar(catId, monthTotal);
 
   const page = document.getElementById('catDetailPage');
@@ -2160,14 +2199,25 @@ function renderMtBudgetPanel(){
   if(input) input.value = currentBudgetValue() || '';
 }
 // Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
-// la barra de presupuesto por categoría).
+// la barra de presupuesto por categoría). Se puede tocar para alternar entre
+// "gastado de límite" y "cuánto queda en efectivo" — vuelve a la vista normal
+// si cambias de mes o de grupo, para no dejarlo en un estado raro sin querer.
+let mtBudgetShowRemaining = false;
+let lastMtBudgetCtxKey = undefined;
 function renderMtBudgetBar(spent){
   const bar = document.getElementById('mtBudgetBar');
   if(!bar) return;
+  const ctx = currentBudgetContext();
+  const ctxKey = (ctx.isGroup ? ctx.key : 'general') + '|' + viewYear + '-' + viewMonth;
+  if(ctxKey !== lastMtBudgetCtxKey){
+    lastMtBudgetCtxKey = ctxKey;
+    mtBudgetShowRemaining = false;
+  }
   const limit = currentBudgetValue();
   if(!(limit > 0)){
     bar.classList.remove('show');
     bar.innerHTML = '';
+    bar.onclick = null;
     return;
   }
   const pct = spent / limit * 100;
@@ -2175,14 +2225,25 @@ function renderMtBudgetBar(spent){
   let state = '';
   if(pct >= 100) state = 'over';
   else if(pct >= 80) state = 'warn';
-  const statusTxt = pct >= 100
-    ? 'Superado (' + Math.round(pct) + '%)'
-    : Math.round(pct) + '%';
-  bar.className = 'cd-budget-bar show ' + state;
-  bar.innerHTML =
-    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
-    '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  bar.className = 'cd-budget-bar show clickable ' + state;
+  if(mtBudgetShowRemaining){
+    const remaining = limit - spent;
+    const labelHtml = remaining >= 0
+      ? '<span class="bb-remaining">💵 Puedes gastar S/ ' + fmt(remaining) + ' más este mes</span>'
+      : '<span class="bb-remaining">⚠️ Te pasaste por S/ ' + fmt(Math.abs(remaining)) + '</span>';
+    bar.innerHTML =
+      '<div class="bb-label">' + labelHtml + '</div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  } else {
+    const statusTxt = pct >= 100
+      ? 'Superado (' + Math.round(pct) + '%)'
+      : Math.round(pct) + '%';
+    bar.innerHTML =
+      '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  }
+  bar.onclick = ()=>{ mtBudgetShowRemaining = !mtBudgetShowRemaining; renderMtBudgetBar(spent); };
 }
 document.getElementById('mtBudgetBtn').addEventListener('click', ()=>{
   document.getElementById('mtBudgetPanel').classList.toggle('open');
@@ -2499,6 +2560,22 @@ document.getElementById('cdBudgetClear').addEventListener('click', ()=>{
   saveCategoryBudgets();
   document.getElementById('cdBudgetInput').value = '';
   renderBudgetBar(cdCatId, currentCdMonthTotal());
+});
+
+// Guardar / quitar la nota frecuente desde el panel de ajustes de la categoría
+// (misma nota que se configura en "editar categoría" — quedan sincronizadas).
+document.getElementById('cdFreqNoteSave').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  const note = document.getElementById('cdFreqNoteInput').value.trim();
+  if(note) catFrequentNotes[cdCatId] = note; else delete catFrequentNotes[cdCatId];
+  saveFrequentNotes();
+  document.getElementById('cdColorPanel').classList.remove('open');
+});
+document.getElementById('cdFreqNoteClear').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  delete catFrequentNotes[cdCatId];
+  saveFrequentNotes();
+  document.getElementById('cdFreqNoteInput').value = '';
 });
 
 function closeCategoryDetail(){
@@ -2980,14 +3057,42 @@ document.getElementById('groupBack').addEventListener('click', closeGroupEditor)
 document.getElementById('groupSaveBtn').addEventListener('click', saveGroup);
 document.getElementById('groupDeleteBtn').addEventListener('click', deleteGroup);
 
-/* ---------- Gastos recurrentes (suscripciones/servicios fijos) ---------- */
-let recurring = [];        // [{id, name, amount, day, category, paid:{'YYYY-MM': expenseId|true}}]
+/* ---------- Gastos recurrentes (suscripciones/servicios fijos) ----------
+   dayFrom/dayTo: rango de días de pago (ambos null = sin fecha fija; dayTo
+   null = un solo día). Antes existía un único campo "day"; se migra abajo. */
+let recurring = [];        // [{id, name, amount, dayFrom, dayTo, category, paid:{'YYYY-MM': expenseId|true}}]
 let recEditingId = null;
 let recSelCat = null;
 
 function loadRecurring(){
   try{ recurring = JSON.parse(localStorage.getItem(RECURRING_KEY)) || []; }
   catch(e){ recurring = []; }
+  recurring.forEach(r=>{
+    if(r.dayFrom === undefined){
+      r.dayFrom = (typeof r.day === 'number' && r.day >= 1 && r.day <= 31) ? r.day : null;
+      r.dayTo = null;
+      delete r.day;
+    }
+  });
+}
+
+// true si hoy cae dentro del rango de pago del recurrente (o es su único día).
+function isRecurringDue(r, now){
+  if(r.dayFrom == null) return false;
+  const d = now.getDate();
+  const from = r.dayFrom;
+  const to = (r.dayTo != null) ? r.dayTo : r.dayFrom;
+  return d >= from && d <= to;
+}
+function hasPendingRecurringAlert(){
+  const mk = monthKey(new Date());
+  const now = new Date();
+  return recurring.some(r => !r.paid[mk] && isRecurringDue(r, now));
+}
+function renderRecAlertBadge(){
+  const badge = document.getElementById('recAlertBadge');
+  if(!badge) return;
+  badge.style.display = hasPendingRecurringAlert() ? '' : 'none';
 }
 function saveRecurring(){
   try{ localStorage.setItem(RECURRING_KEY, JSON.stringify(recurring)); }catch(e){}
@@ -3028,12 +3133,17 @@ function renderRecurringList(){
     box.innerHTML = '<div class="empty">Aún no tienes recurrentes. Crea uno con el botón de abajo.</div>';
     return;
   }
+  const now = new Date();
   box.innerHTML = recurring.map(r=>{
     const cat = catById(r.category) || {icon:'🗂️', name:'Otros'};
     const paid = !!r.paid[mk];
+    const due = !paid && isRecurringDue(r, now);
+    const dayLbl = r.dayFrom == null ? 'sin fecha fija'
+      : (r.dayTo != null && r.dayTo !== r.dayFrom) ? ('días ' + r.dayFrom + '–' + r.dayTo)
+      : ('día ' + r.dayFrom);
     return '<div class="rec-item" data-id="' + r.id + '">' +
-             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + '</div>' +
-               '<div class="rec-meta">S/ ' + fmt(r.amount) + ' · día ' + r.day + ' · ' + cat.name + '</div></div>' +
+             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + (due ? ' <span class="rec-due-flag" title="Pendiente de pago">⚠️</span>' : '') + '</div>' +
+               '<div class="rec-meta">S/ ' + fmt(r.amount) + ' · ' + dayLbl + ' · ' + cat.name + '</div></div>' +
              '<div class="rec-actions">' +
                '<span class="rec-edit" data-id="' + r.id + '" title="Editar">✏️</span>' +
                '<button class="rec-toggle' + (paid ? ' paid' : '') + '" data-id="' + r.id + '" type="button">' + (paid ? '✓ Pagado' : 'Pendiente') + '</button>' +
@@ -3046,6 +3156,7 @@ function renderRecurringList(){
   box.querySelectorAll('.rec-edit').forEach(b=>{
     b.addEventListener('click', ()=> openRecForm(b.getAttribute('data-id')));
   });
+  renderRecAlertBadge();
 }
 
 function renderRecCatGrid(){
@@ -3055,7 +3166,7 @@ function renderRecCatGrid(){
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (recSelCat === cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
-    btn.onclick = ()=>{ recSelCat = cat.id; renderRecCatGrid(); };
+    btn.onclick = ()=>{ recSelCat = cat.id; renderRecCatGrid(); autoSaveRecItem(); };
     grid.appendChild(btn);
   });
 }
@@ -3066,7 +3177,8 @@ function openRecForm(id){
   document.getElementById('recTitle').textContent = r ? 'Editar recurrente' : 'Nuevo recurrente';
   document.getElementById('recName').value = r ? r.name : '';
   document.getElementById('recAmount').value = r ? r.amount : '';
-  document.getElementById('recDay').value = r ? r.day : '';
+  document.getElementById('recDayFrom').value = (r && r.dayFrom != null) ? r.dayFrom : '';
+  document.getElementById('recDayTo').value = (r && r.dayTo != null) ? r.dayTo : '';
   recSelCat = r ? r.category : null;
   renderRecCatGrid();
   document.getElementById('recDeleteBtn').style.display = r ? '' : 'none';
@@ -3074,21 +3186,30 @@ function openRecForm(id){
   document.getElementById('recFormWrap').style.display = '';
 }
 
-function saveRecItem(){
+// Guarda automáticamente en cuanto nombre, monto y categoría son válidos
+// (no hay botón "Guardar"). Si aún falta algo, no hace nada ni avisa,
+// para no interrumpir mientras el usuario sigue llenando el formulario.
+function autoSaveRecItem(){
+  if(document.getElementById('recFormWrap').style.display === 'none') return;
   const name = document.getElementById('recName').value.trim();
   const amount = parseFloat(document.getElementById('recAmount').value);
-  let day = parseInt(document.getElementById('recDay').value, 10);
-  if(!name || !(amount > 0) || !recSelCat){ alert('Completa nombre, monto y categoría.'); return; }
-  if(!(day >= 1 && day <= 31)) day = 1;
+  let dayFrom = parseInt(document.getElementById('recDayFrom').value, 10);
+  let dayTo = parseInt(document.getElementById('recDayTo').value, 10);
+  dayFrom = (dayFrom >= 1 && dayFrom <= 31) ? dayFrom : null;
+  dayTo = (dayTo >= 1 && dayTo <= 31) ? dayTo : null;
+  if(dayFrom == null){ dayTo = null; }
+  else if(dayTo != null && dayTo < dayFrom){ const t = dayFrom; dayFrom = dayTo; dayTo = t; }
+  if(!name || !(amount > 0) || !recSelCat) return;
   if(recEditingId){
     const r = recurring.find(x=>x.id === recEditingId);
-    if(r){ r.name = name; r.amount = amount; r.day = day; r.category = recSelCat; }
+    if(r){ r.name = name; r.amount = amount; r.dayFrom = dayFrom; r.dayTo = dayTo; r.category = recSelCat; }
   } else {
-    recurring.push({id:'rec_' + Date.now(), name:name, amount:amount, day:day, category:recSelCat, paid:{}});
+    recEditingId = 'rec_' + Date.now();
+    recurring.push({id:recEditingId, name:name, amount:amount, dayFrom:dayFrom, dayTo:dayTo, category:recSelCat, paid:{}});
+    document.getElementById('recDeleteBtn').style.display = '';
   }
   saveRecurring();
-  showRecList();
-  renderRecurringList();
+  renderRecAlertBadge();
 }
 
 function deleteRecItem(){
@@ -3124,7 +3245,14 @@ function toggleRecurringPaid(id){
     if(registrar){
       const now = new Date();
       const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      const day = Math.min(r.day, dim);
+      let day;
+      if(r.dayFrom == null){
+        day = now.getDate(); // sin fecha fija: usa el día real en que se marca pagado
+      } else if(isRecurringDue(r, now)){
+        day = now.getDate(); // hoy cae dentro de su rango: usa la fecha real
+      } else {
+        day = Math.min(r.dayFrom, dim);
+      }
       const gasto = {
         id: Date.now().toString(),
         amount: r.amount,
@@ -3291,9 +3419,11 @@ function toggleReminderDone(id){
 document.getElementById('recurringBtn').addEventListener('click', openRecurringPage);
 document.getElementById('recBack').addEventListener('click', closeRecurringPage);
 document.getElementById('recurringAddBtn').addEventListener('click', ()=> openRecForm(null));
-document.getElementById('recSaveBtn').addEventListener('click', saveRecItem);
 document.getElementById('recDeleteBtn').addEventListener('click', deleteRecItem);
-document.getElementById('recCancelBtn').addEventListener('click', ()=>{ showRecList(); renderRecurringList(); });
+document.getElementById('recCancelBtn').addEventListener('click', ()=>{ autoSaveRecItem(); showRecList(); renderRecurringList(); });
+['recName','recAmount','recDayFrom','recDayTo'].forEach(fid=>{
+  document.getElementById(fid).addEventListener('change', autoSaveRecItem);
+});
 document.getElementById('remAddBtn').addEventListener('click', ()=> openRemForm(null));
 document.getElementById('remSaveBtn').addEventListener('click', saveRemItem);
 document.getElementById('remDeleteBtn').addEventListener('click', deleteRemItem);
@@ -3525,6 +3655,7 @@ initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCatOverrides();
+loadFrequentNotes();
 loadDeletedBaseCats();
 loadCatOrder();
 loadCategoryColors();
@@ -3532,6 +3663,7 @@ loadCategoryBudgets();
 loadMonthBudgets();
 loadCatGroups();
 loadRecurring();
+renderRecAlertBadge();
 loadReminders();
 loadCashback();
 loadCashbackExclude();
