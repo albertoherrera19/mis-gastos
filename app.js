@@ -734,19 +734,26 @@ function expenseGroupIds(e){
   return [];
 }
 
-// ¿Un gasto pertenece a un grupo? (por categoría del grupo o etiqueta manual)
-function expenseInGroup(e, groupId){
-  const g = catGroups.find(x=>x.id === groupId);
-  if(!g) return false;
-  if(g.cats.indexOf(e.category) !== -1) return true;
-  if(expenseGroupIds(e).indexOf(groupId) !== -1) return true;
-  return false;
+// Grupos EFECTIVOS de un gasto para filtrar:
+//  - Si tiene grupo(s) forzado(s) a mano, esos MANDAN y REEMPLAZAN al grupo de
+//    su categoría (ej: un pago a SUNAT en categoría "Servicios" —que vive en
+//    "Personal"— forzado a "Timeless" cuenta solo en Timeless, no en Personal).
+//  - Si no forzó nada ("Ninguno"), cae al grupo al que pertenece su categoría.
+function effectiveGroupIds(e){
+  const tags = expenseGroupIds(e);
+  if(tags.length) return tags;
+  return catGroups.filter(g=> g.cats.indexOf(e.category) !== -1).map(g=> g.id);
 }
 
-// Filtra una lista de gastos por el grupo activo: incluye los de categorías del
-// grupo Y los gastos individuales etiquetados manualmente con ese grupo (un
-// gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
-// total general — solo afecta qué grupos lo incluyen en su vista filtrada).
+// ¿Un gasto pertenece (efectivamente) a un grupo?
+function expenseInGroup(e, groupId){
+  if(!groupId) return false;
+  return effectiveGroupIds(e).indexOf(groupId) !== -1;
+}
+
+// Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
+// gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
+// el(los) grupo(s) que forzaste.
 function applyGroupFilter(list){
   return filterByGroupId(list, activeGroup);
 }
@@ -755,9 +762,7 @@ function applyGroupFilter(list){
 // lo usa el filtro secundario del feed para segmentar en modo Predeterminado.
 function filterByGroupId(list, groupId){
   if(!groupId) return list;
-  const g = catGroups.find(x=>x.id === groupId);
-  const cats = g ? g.cats : [];
-  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(groupId) !== -1);
+  return list.filter(e=> effectiveGroupIds(e).indexOf(groupId) !== -1);
 }
 
 // Pills de "Grupo (opcional)" en un formulario (agregar/editar). Multi-selección:
@@ -989,6 +994,20 @@ function cashbackUsedInMonth(year, month){
     return d.getFullYear() === year && d.getMonth() === month;
   });
   return netTotalDetailed(monthExp, year, month).recovered;
+}
+
+// Cuánto cashback se recuperó en TODA la historia (suma de lo recuperado mes a mes).
+// El cashback sigue restando solo dentro de su propio mes; esto es solo para VER
+// el acumulado histórico, no cambia ningún total.
+function cashbackUsedAllTime(){
+  const seen = new Set();
+  cashback.forEach(c=>{ const d = new Date(c.date); seen.add(d.getFullYear() + '-' + d.getMonth()); });
+  let total = 0;
+  seen.forEach(key=>{
+    const [y, m] = key.split('-').map(Number);
+    total += cashbackUsedInMonth(y, m);
+  });
+  return total;
 }
 
 function renderMonthTotal(){
@@ -1276,8 +1295,9 @@ let avoidableIds = [];       // ids de gastos marcados evitables a mano (categor
 let simAutoAvoidCats = [];   // ids de categoría marcadas "siempre innecesaria": todo gasto (existente o nuevo) es evitable por defecto
 let avoidableExceptions = []; // ids de gastos que SÍ son necesarios pese a la regla automática de su categoría
 let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
-let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut y las barras
+let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut, las barras y (en modo Ver) la lista
 let simActiveCat = null;        // categoría seleccionada en el donut del simulador (null = ninguna)
+let simListMode = 'marcar';     // 'marcar' = marcar lo evitable | 'ver' = solo ver la lista de gastos necesarios/evitables
 const simOpenCats = new Set(); // categorías EXPANDIDAS en la lista de marcado (por defecto todas cerradas)
 
 function loadAvoidable(){
@@ -1662,11 +1682,48 @@ function renderSim(){
            '</div>';
   }).join('');
 
+  // Modo VER: lista plana de solo lectura con los gastos del bucket elegido en
+  // los chips (Necesario/Evitable), dentro del grupo seleccionado, ordenados de
+  // mayor a menor — para revisar rápido "cuáles son" sin entrar categoría por categoría.
+  const verEvit = simGraphMode === 'evitable';
+  const verItems = [...list]
+    .filter(e=> verEvit ? isAvoidableExpense(e) : !isAvoidableExpense(e))
+    .sort((a,b)=> b.amount - a.amount);
+  const verTotal = verItems.reduce((s,e)=> s + e.amount, 0);
+  const verRows = verItems.map(e=>{
+    const c = catById(e.category) || {icon:'🗂️', name:'Otros'};
+    const d = new Date(e.date);
+    const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+    const label = e.note ? e.note : c.name;
+    return '<div class="sim-ver-item" data-id="' + e.id + '">' +
+             '<span class="icon">' + c.icon + '</span>' +
+             '<span class="sim-ver-info"><span class="sim-ver-note">' + label + '</span>' +
+               '<span class="sim-ver-sub">' + c.name + ' · ' + dateStr + '</span></span>' +
+             '<span class="sim-ver-amt">S/ ' + fmt(e.amount) + '</span>' +
+           '</div>';
+  }).join('');
+
+  // Cabecera con el toggle Marcar / Ver (siempre visible si hay gastos).
+  const modeToggle =
+    '<div class="sim-list-modes">' +
+      '<button class="sim-list-mode-btn' + (simListMode === 'marcar' ? ' active' : '') + '" type="button" data-lmode="marcar">✍️ Marcar</button>' +
+      '<button class="sim-list-mode-btn' + (simListMode === 'ver' ? ' active' : '') + '" type="button" data-lmode="ver">👁️ Ver</button>' +
+    '</div>';
+
   const listBox = document.getElementById('simList');
   if(list.length === 0){
     listBox.innerHTML = '<div class="empty">No hay gastos que simular en ' + monthName + (simScope ? ' para ' + scopeName : '') + '.</div>';
+  } else if(simListMode === 'ver'){
+    const verTitle = 'Gastos ' + (verEvit ? 'evitables' : 'necesarios') + ' · ' + scopeName;
+    const verBody = verItems.length
+      ? ('<div class="sim-ver-subtotal">' + verItems.length + ' gasto(s) · <b>S/ ' + fmt(verTotal) + '</b></div>' + verRows)
+      : '<div class="empty">No hay gastos ' + (verEvit ? 'evitables' : 'necesarios') + ' en ' + monthName + '.</div>';
+    listBox.innerHTML = modeToggle + '<div class="sim-list-title">' + verTitle + '</div>' + verBody;
+    listBox.querySelectorAll('.sim-ver-item').forEach(el=>{
+      el.addEventListener('click', ()=> jumpToExpense(el.getAttribute('data-id')));
+    });
   } else {
-    listBox.innerHTML = '<div class="sim-list-title">Marca lo que pudiste evitar</div>' + itemsHtml;
+    listBox.innerHTML = modeToggle + '<div class="sim-list-title">Marca lo que pudiste evitar</div>' + itemsHtml;
     listBox.querySelectorAll('.sim-cat-group').forEach(group=>{
       group.querySelector('.sim-cat-head').addEventListener('click', ()=>{
         const id = group.getAttribute('data-cat');
@@ -1692,6 +1749,10 @@ function renderSim(){
       });
     });
   }
+  // Toggle Marcar/Ver (presente en ambos modos mientras haya gastos).
+  listBox.querySelectorAll('.sim-list-mode-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ simListMode = btn.getAttribute('data-lmode'); renderSim(); });
+  });
 }
 
 // Marca (o desmarca, si ya estaban todos) TODOS los gastos de una categoría de golpe.
@@ -1740,6 +1801,21 @@ function dailyTotalsForCategory(catId){
     }
   });
   return {totals, daysInMonth, year, month};
+}
+
+// Movimientos de producto (que NO gastan efectivo: canjes/reposición marcados como
+// Producto) de una categoría en el mes que se está viendo, del más reciente al más
+// antiguo. Sirve para la vista "Productos que salieron" dentro de la categoría —
+// no entran en ningún total de efectivo, pero el usuario quiere poder verlos.
+function stockMovementsForCategory(catId){
+  const year = viewYear, month = viewMonth;
+  return expenses
+    .filter(e=>{
+      if(e.category !== catId || !isStockMovement(e)) return false;
+      const d = new Date(e.date);
+      return d.getFullYear() === year && d.getMonth() === month;
+    })
+    .sort((a,b)=> new Date(b.date) - new Date(a.date));
 }
 
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -1907,6 +1983,51 @@ function renderCdList(){
   });
 }
 
+// Panel "Productos que salieron" — solo en Canjes/Reposición y solo si este mes
+// hubo movimientos de producto. Desde afuera la categoría sigue en S/0 (esto no
+// es efectivo); aquí adentro se ven esos productos, con su valor total, marcado
+// claramente como que NO cuenta como gasto en efectivo.
+function renderCdStockPanel(catId){
+  const panel = document.getElementById('cdStockPanel');
+  if(!panel) return;
+  if(!isCashbackExemptCategory(catId)){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  const items = stockMovementsForCategory(catId);
+  if(items.length === 0){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  const total = items.reduce((s,e)=> s + e.amount, 0);
+  let rows = '';
+  items.forEach(e=>{
+    const note = (e.note && e.note.trim()) ? e.note : 'Sin nota';
+    const dLabel = cap(new Date(e.date).toLocaleDateString('es-PE', {day:'2-digit', month:'short'}));
+    rows +=
+      '<div class="cd-stock-item" data-eid="' + e.id + '">' +
+        '<span class="cd-stock-note">📦 ' + note + '</span>' +
+        '<span class="cd-stock-r">' +
+          '<span class="cd-stock-amt">S/ ' + fmt(e.amount) + '</span>' +
+          '<span class="cd-stock-date">' + dLabel + '</span>' +
+        '</span>' +
+      '</div>';
+  });
+  panel.innerHTML =
+    '<div class="cd-stock-head">' +
+      '<span class="cd-stock-title">📦 Productos que salieron</span>' +
+      '<span class="cd-stock-total">S/ ' + fmt(total) + '</span>' +
+    '</div>' +
+    '<div class="cd-stock-sub">No cuenta como gasto en efectivo — es el valor de lo que saliste de stock (canjes, reposición, pérdidas).</div>' +
+    '<div class="cd-stock-list">' + rows + '</div>';
+  panel.style.display = '';
+  panel.querySelectorAll('.cd-stock-item').forEach(item=>{
+    item.addEventListener('click', ()=> jumpToExpense(item.getAttribute('data-eid')));
+  });
+}
+
 document.getElementById('cdListSortBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
   document.getElementById('cdListSortMenu').classList.toggle('open');
@@ -1997,15 +2118,23 @@ function openCategoryDetail(catId){
   // Lista de días con gasto: cada fila se puede expandir para ver sus gastos.
   renderCdList();
 
+  // Productos que salieron sin gastar efectivo (solo Canjes/Reposición).
+  renderCdStockPanel(catId);
+
   // Color propio de la categoría (o acento del tema si no tiene).
   applyCdAccent(catId);
   renderCdColorSwatches(catId);
   document.getElementById('cdColorPanel').classList.remove('open');
 
-  // Presupuesto de la categoría. Ojo: 0 es un presupuesto real ("no gastar nada
-  // en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
-  const catBudget = categoryBudgets[catId];
+  // Presupuesto de la categoría — POR MES. Ojo: 0 es un presupuesto real ("no
+  // gastar nada en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
+  const catBudget = catBudgetOf(catId, cdYear, cdMonth);
   document.getElementById('cdBudgetInput').value = (catBudget != null) ? catBudget : '';
+  const cdBudgetTitle = document.getElementById('cdBudgetTitle');
+  if(cdBudgetTitle){
+    const mName = cap(new Date(cdYear, cdMonth, 1).toLocaleDateString('es-PE', {month:'long'}));
+    cdBudgetTitle.textContent = 'Presupuesto de ' + mName + ' (opcional)';
+  }
   document.getElementById('cdFreqNoteInput').value = catFrequentNotes[catId] || '';
   renderBudgetBar(catId, monthTotal);
 
@@ -2110,13 +2239,49 @@ function saveCategoryColors(){
 }
 
 /* ----- Presupuesto mensual por categoría (opcional) ----- */
-let categoryBudgets = {}; // { catId: monto }
+// Presupuesto por categoría, POR MES: { 'YYYY-MM': { catId: monto } }. Antes era
+// plano { catId: monto } (un solo valor para todos los meses); ese formato viejo
+// se migra una sola vez al mes actual, igual que se hizo con el presupuesto general.
+let categoryBudgets = {};
 function loadCategoryBudgets(){
   try{ categoryBudgets = JSON.parse(localStorage.getItem(BUDGET_KEY)) || {}; }
   catch(e){ categoryBudgets = {}; }
+  migrateLegacyCategoryBudgets();
 }
 function saveCategoryBudgets(){
   try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
+}
+// Si el objeto guardado está en el formato viejo (llaves = ids de categoría, no
+// 'YYYY-MM'), se mete tal cual bajo el mes actual y se conserva desde ahí por mes.
+function migrateLegacyCategoryBudgets(){
+  const keys = Object.keys(categoryBudgets);
+  if(keys.length === 0) return;
+  const isMonthKey = (k)=> /^\d{4}-\d{2}$/.test(k);
+  if(keys.every(isMonthKey)) return; // ya está en formato por-mes
+  const now = new Date();
+  const mk = budgetMonthKey(now.getFullYear(), now.getMonth());
+  const legacy = {};
+  keys.forEach(k=>{ if(!isMonthKey(k)){ legacy[k] = categoryBudgets[k]; delete categoryBudgets[k]; } });
+  categoryBudgets[mk] = Object.assign({}, legacy, categoryBudgets[mk] || {});
+  saveCategoryBudgets();
+}
+// Presupuesto de una categoría en el mes que se está viendo (o null si no tiene).
+function catBudgetOf(catId, year, month){
+  const bucket = categoryBudgets[budgetMonthKey(year, month)];
+  if(!bucket) return null;
+  const v = bucket[catId];
+  return (v != null) ? v : null;
+}
+function setCatBudget(catId, year, month, v){
+  const mk = budgetMonthKey(year, month);
+  if(v == null){
+    if(categoryBudgets[mk]) delete categoryBudgets[mk][catId];
+  } else {
+    if(!categoryBudgets[mk]) categoryBudgets[mk] = {};
+    categoryBudgets[mk][catId] = v;
+  }
+  if(categoryBudgets[mk] && Object.keys(categoryBudgets[mk]).length === 0) delete categoryBudgets[mk];
+  saveCategoryBudgets();
 }
 
 /* ----- Presupuesto general del mes y por grupo (opcional) -----
@@ -2461,8 +2626,8 @@ document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleSh
 function renderBudgetBar(catId, spent){
   const bar = document.getElementById('cdBudgetBar');
   if(!bar) return;
-  const limit = categoryBudgets[catId];
-  if(limit === undefined){
+  const limit = catBudgetOf(catId, cdYear, cdMonth);
+  if(limit == null){
     bar.classList.remove('show');
     bar.innerHTML = '';
     return;
@@ -2545,19 +2710,18 @@ document.getElementById('cdBudgetSave').addEventListener('click', ()=>{
   const raw = document.getElementById('cdBudgetInput').value;
   // Campo vacío = sin presupuesto (usa "Quitar" para eso). Un número válido
   // ≥ 0 se guarda tal cual: poner 0 es un tope real de "no gastar nada".
-  if(raw.trim() === ''){ delete categoryBudgets[cdCatId]; }
+  // Se guarda SOLO para el mes que se está viendo (cdYear/cdMonth).
+  if(raw.trim() === ''){ setCatBudget(cdCatId, cdYear, cdMonth, null); }
   else {
     const v = parseFloat(raw);
-    if(!isNaN(v) && v >= 0) categoryBudgets[cdCatId] = v;
+    if(!isNaN(v) && v >= 0) setCatBudget(cdCatId, cdYear, cdMonth, v);
   }
-  saveCategoryBudgets();
   renderBudgetBar(cdCatId, currentCdMonthTotal());
   document.getElementById('cdColorPanel').classList.remove('open');
 });
 document.getElementById('cdBudgetClear').addEventListener('click', ()=>{
   if(!cdCatId) return;
-  delete categoryBudgets[cdCatId];
-  saveCategoryBudgets();
+  setCatBudget(cdCatId, cdYear, cdMonth, null);
   document.getElementById('cdBudgetInput').value = '';
   renderBudgetBar(cdCatId, currentCdMonthTotal());
 });
@@ -3473,11 +3637,14 @@ function renderCashbackList(){
   const totalRegistered = cashback.reduce((s,c)=>s+c.amount, 0);
   const withdrawnThisMonth = cashbackInMonth(viewYear, viewMonth);
   const usedThisMonth = cashbackUsedInMonth(viewYear, viewMonth);
+  const usedAllTime = cashbackUsedAllTime();
   const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
 
   let html = 'Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) +
     '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>' +
-    '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>';
+    '<span class="cb-hist-title">Histórico (toda la app)</span>' +
+    '<span class="cb-used">Retirado en total: S/ ' + fmt(totalRegistered) + '</span>' +
+    '<span class="cb-used">Recuperado en total: S/ ' + fmt(usedAllTime) + '</span>';
   if(withdrawnThisMonth - usedThisMonth > 0.005){
     html += '<span class="cb-used">El cashback se refleja solo dentro de ' + monthName + ' — lo que no alcanzó a cubrirse con gastos de ese mes no pasa al siguiente.</span>';
   }

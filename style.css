@@ -739,6 +739,17 @@ input[type="text"]::placeholder{color:var(--muted);}
   color:var(--muted);
   margin-top:4px;
 }
+.cb-balance .cb-hist-title{
+  display:block;
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:var(--muted);
+  margin-top:10px;
+  padding-top:8px;
+  border-top:1px solid var(--line);
+}
 .cb-scope-row{margin-bottom:16px;}
 .cb-scope-label{
   display:block;
@@ -920,6 +931,27 @@ input[type="text"]::placeholder{color:var(--muted);}
 .sim-mbar .col .val{color:var(--bone);font-weight:700;font-size:9.5px;}
 /* Lista de marcado, colapsable por categoría */
 .sim-list-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:10px;}
+/* Toggle Marcar / Ver de la lista del simulador */
+.sim-list-modes{display:flex;gap:8px;margin-bottom:12px;}
+.sim-list-mode-btn{
+  flex:1;background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  font-size:12px;font-weight:700;padding:8px 10px;border-radius:20px;cursor:pointer;
+}
+.sim-list-mode-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--bone);}
+/* Modo Ver: lista plana de solo lectura */
+.sim-ver-subtotal{font-size:12px;color:var(--muted);margin-bottom:8px;}
+.sim-ver-subtotal b{color:var(--bone);font-family:monospace;}
+.sim-ver-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 0;border-top:1px solid var(--line);cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.sim-ver-item:active{opacity:.6;}
+.sim-ver-item .icon{font-size:15px;flex-shrink:0;}
+.sim-ver-info{flex:1;min-width:0;display:flex;flex-direction:column;}
+.sim-ver-note{font-size:13px;color:var(--bone);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sim-ver-sub{font-size:11px;color:var(--muted);}
+.sim-ver-amt{font-size:13px;font-weight:700;font-family:monospace;color:var(--bone);flex-shrink:0;}
 .sim-cat-group{
   margin-bottom:8px;
   background:var(--card);
@@ -1141,6 +1173,66 @@ body.cd-open{overflow:hidden;}
 .mt-range-bar{cursor:pointer;}
 .cd-budget-bar.clickable{cursor:pointer;}
 .cd-budget-bar .bb-remaining{font-family:inherit;font-size:12px;color:var(--bone);font-weight:700;}
+/* Panel "Productos que salieron" (solo Canjes/Reposición) */
+.cd-stock-panel{
+  margin-top:16px;
+  background:var(--chip);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px 14px;
+}
+.cd-stock-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:10px;
+}
+.cd-stock-title{
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted);
+  font-weight:700;
+}
+.cd-stock-total{
+  font-family:monospace;
+  font-size:17px;
+  font-weight:700;
+  color:var(--bone);
+  flex-shrink:0;
+}
+.cd-stock-sub{
+  font-size:11px;
+  line-height:1.4;
+  color:var(--muted);
+  margin:6px 0 10px;
+}
+.cd-stock-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:12px;
+  padding:6px 0;
+  border-top:1px solid var(--line);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.cd-stock-item:active{opacity:.6;}
+.cd-stock-note{
+  font-size:12px;
+  color:var(--bone);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.cd-stock-r{display:flex;align-items:baseline;gap:10px;flex-shrink:0;}
+.cd-stock-amt{
+  font-family:monospace;
+  font-size:12px;
+  font-weight:700;
+  color:var(--muted);
+}
+.cd-stock-date{font-size:11px;color:var(--muted);}
 .cd-swatch{
   display:flex;
   flex-direction:column;
