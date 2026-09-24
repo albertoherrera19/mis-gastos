@@ -751,6 +751,37 @@ function expenseInGroup(e, groupId){
   return effectiveGroupIds(e).indexOf(groupId) !== -1;
 }
 
+// ¿Este gasto pasa el filtro del grupo activo de la pantalla principal? En
+// Predeterminado (activeGroup null) pasa todo; con un grupo activo, solo los que
+// efectivamente le pertenecen (respetando el grupo forzado). Lo usan las vistas
+// de detalle de categoría para que su total no se "olvide" del grupo elegido.
+function passesActiveGroup(e){
+  return !activeGroup || expenseInGroup(e, activeGroup);
+}
+
+// Bloqueo de scroll del fondo cuando se abre una página overlay (categoría,
+// cashback, simulador, etc.). En móvil (iOS/PWA) `overflow:hidden` en el body no
+// frena el scroll táctil; fijar el body con position:fixed sí. Se guarda y
+// restaura la posición de scroll. Un contador soporta overlays apilados (ej.
+// abrir "editar gasto" encima del detalle de categoría) sin perder la posición.
+let _bgScrollY = 0, _bgLockDepth = 0;
+function lockBg(){
+  if(_bgLockDepth === 0){
+    _bgScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    document.body.style.top = (-_bgScrollY) + 'px';
+    document.body.classList.add('cd-open');
+  }
+  _bgLockDepth++;
+}
+function unlockBg(){
+  _bgLockDepth = Math.max(0, _bgLockDepth - 1);
+  if(_bgLockDepth === 0){
+    document.body.classList.remove('cd-open');
+    document.body.style.top = '';
+    window.scrollTo(0, _bgScrollY);
+  }
+}
+
 // Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
 // gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
 // el(los) grupo(s) que forzaste.
@@ -862,7 +893,7 @@ function openGroupEditor(gid){
   const page = document.getElementById('groupPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 
@@ -870,7 +901,7 @@ function closeGroupEditor(){
   const page = document.getElementById('groupPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   editingGroupId = null;
 }
 
@@ -1419,7 +1450,7 @@ function openSimPage(){
   const page = document.getElementById('simPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
   renderSim();
 }
@@ -1427,7 +1458,7 @@ function closeSimPage(){
   const page = document.getElementById('simPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   renderSimLauncher(); // refresca el teaser por si marcaron cosas
 }
 
@@ -1795,6 +1826,7 @@ function dailyTotalsForCategory(catId){
   expenses.forEach(e=>{
     if(e.category !== catId) return;
     if(isStockMovement(e)) return;
+    if(!passesActiveGroup(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month){
       totals[d.getDate()] += e.amount;
@@ -1812,6 +1844,7 @@ function stockMovementsForCategory(catId){
   return expenses
     .filter(e=>{
       if(e.category !== catId || !isStockMovement(e)) return false;
+      if(!passesActiveGroup(e)) return false;
       const d = new Date(e.date);
       return d.getFullYear() === year && d.getMonth() === month;
     })
@@ -1829,6 +1862,7 @@ function categoryTotalForMonth(catId, year, month, upToDay){
   expenses.forEach(e=>{
     if(e.category !== catId) return;
     if(isStockMovement(e)) return;
+    if(!passesActiveGroup(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month && d.getDate() <= cap) t += e.amount;
   });
@@ -1929,6 +1963,8 @@ function renderCdList(){
   sortedCdDays().forEach(x=>{
     const dayItems = expenses.filter(e=>{
       if(e.category !== cdCatId) return false;
+      if(isStockMovement(e)) return false;
+      if(!passesActiveGroup(e)) return false;
       const d = new Date(e.date);
       return d.getFullYear()===cdYear && d.getMonth()===cdMonth && d.getDate()===x.day;
     }).sort((a,b)=> new Date(a.date) - new Date(b.date));
@@ -2141,7 +2177,7 @@ function openCategoryDetail(catId){
   const page = document.getElementById('catDetailPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 
   // Calcular tamaños tras el layout real.
@@ -2565,7 +2601,7 @@ function openRangeGoalPage(){
   rgDraftExcluded = new Set(rangeGoal && rangeGoal.excluded ? rangeGoal.excluded : []);
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
   renderRangeGoal();
 }
@@ -2573,7 +2609,7 @@ function closeRangeGoalPage(){
   const page = document.getElementById('rangeGoalPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
 document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
@@ -2623,13 +2659,21 @@ document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleSh
 // configurado). Un límite de 0 SÍ es un presupuesto real ("no gastar nada en
 // esta categoría"): se distingue de "sin presupuesto" (undefined), y se dibuja
 // sin dividir entre cero.
+// La barra de presupuesto de la categoría se puede tocar para alternar entre
+// "gastado de límite" y "cuánto queda" en efectivo, igual que la de la principal.
+// Vuelve a la vista normal si cambias de categoría o de mes.
+let cdBudgetShowRemaining = false;
+let lastCdBudgetKey = undefined;
 function renderBudgetBar(catId, spent){
   const bar = document.getElementById('cdBudgetBar');
   if(!bar) return;
+  const key = catId + '|' + cdYear + '-' + cdMonth;
+  if(key !== lastCdBudgetKey){ lastCdBudgetKey = key; cdBudgetShowRemaining = false; }
   const limit = catBudgetOf(catId, cdYear, cdMonth);
   if(limit == null){
     bar.classList.remove('show');
     bar.innerHTML = '';
+    bar.onclick = null;
     return;
   }
   const over = spent > limit;
@@ -2637,14 +2681,24 @@ function renderBudgetBar(catId, spent){
   let state = '';
   if(over) state = 'over';
   else if(limit > 0 && pct >= 80) state = 'warn';
-  const statusTxt = over
-    ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
-    : Math.round(pct) + '%';
-  bar.className = 'cd-budget-bar show ' + state;
-  bar.innerHTML =
-    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
-    '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  bar.className = 'cd-budget-bar show clickable ' + state;
+  if(cdBudgetShowRemaining){
+    const remaining = limit - spent;
+    const labelHtml = remaining >= 0
+      ? '<span class="bb-remaining">💵 Te faltan S/ ' + fmt(remaining) + ' para el límite</span>'
+      : '<span class="bb-remaining">⚠️ Te pasaste por S/ ' + fmt(Math.abs(remaining)) + '</span>';
+    bar.innerHTML = '<div class="bb-label">' + labelHtml + '</div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  } else {
+    const statusTxt = over
+      ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
+      : Math.round(pct) + '%';
+    bar.innerHTML =
+      '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
+  bar.onclick = ()=>{ cdBudgetShowRemaining = !cdBudgetShowRemaining; renderBudgetBar(catId, spent); };
 }
 function themeAccentHex(){
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
@@ -2746,7 +2800,7 @@ function closeCategoryDetail(){
   const page = document.getElementById('catDetailPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   document.getElementById('cdColorPanel').classList.remove('open');
   hideCdTip();
 }
@@ -3029,6 +3083,17 @@ function renderFeed(){
     feed.innerHTML = ordered.map(txHtml).join('');
   }
 
+  // Si hay una búsqueda o filtro activo, muestra al pie el total de lo filtrado
+  // (ej: buscar "ISIL" para ver cuánto suma en pasajes de instituto). Los
+  // movimientos de producto (no efectivo) no suman.
+  const ff = feedSearch;
+  const filterActive = !!((ff.text && ff.text.trim()) || ff.min != null || ff.max != null || ff.from || ff.to);
+  if(filterActive){
+    const filteredTotal = base.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
+    feed.insertAdjacentHTML('beforeend',
+      '<div class="feed-filter-total">Total de lo filtrado (' + base.length + '): <b>S/ ' + fmt(filteredTotal) + '</b></div>');
+  }
+
   // Borrado (misma lógica en ambos modos).
   feed.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = (ev)=>{
@@ -3181,7 +3246,7 @@ function openEditExpense(id){
   const page = document.getElementById('editPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 
@@ -3189,7 +3254,7 @@ function closeEditExpense(){
   const page = document.getElementById('editPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   editingId = null;
 }
 
@@ -3275,14 +3340,14 @@ function openRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 function closeRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 function showRecList(){
   document.getElementById('recListWrap').style.display = '';
@@ -3604,8 +3669,354 @@ document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
     else{ showRemList(); renderRemindersList(); }
   });
 });
+/* ---------- Resumen del año (página completa) ----------
+   Año CALENDARIO: muestra los meses de ese año, desde el primero con datos
+   hasta el actual (si es el año en curso). Los totales por mes son NETOS
+   (descuentan cashback, igual que la pantalla principal, para que los números
+   coincidan con lo que ve a diario). El donut por categoría es BRUTO — el
+   cashback no pertenece a ninguna categoría — y si hubo cashback se aclara en
+   el resumen. El mes en curso se marca y se compara contra el MISMO tramo de
+   días de los otros meses, para que no se vea bajo artificialmente. */
+let yearView = new Date().getFullYear();
+let yearScope = null;     // grupo dentro del resumen (null = Todos)
+let yearActiveCat = null; // categoría elegida en el donut del año
+
+// Gastos en efectivo (sin productos) de un mes, por grupo y opcionalmente
+// hasta cierto día del mes.
+function yearMonthExpenses(year, month, groupId, upToDay){
+  return expenses.filter(e=>{
+    if(isStockMovement(e)) return false;
+    if(groupId && !expenseInGroup(e, groupId)) return false;
+    const d = new Date(e.date);
+    if(d.getFullYear() !== year || d.getMonth() !== month) return false;
+    if(upToDay != null && d.getDate() > upToDay) return false;
+    return true;
+  });
+}
+function yearMonthNet(year, month, groupId){
+  const list = yearMonthExpenses(year, month, groupId);
+  if(list.length === 0) return 0;
+  return netTotalDetailed(list, year, month).net;
+}
+function yearMonthGross(year, month, groupId, upToDay){
+  return yearMonthExpenses(year, month, groupId, upToDay).reduce((s,e)=> s + e.amount, 0);
+}
+
+function openYearPage(){
+  yearView = viewYear;
+  yearScope = activeGroup;
+  yearActiveCat = null;
+  const page = document.getElementById('yearPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  lockBg();
+  page.scrollTop = 0;
+  renderYear();
+}
+function closeYearPage(){
+  const page = document.getElementById('yearPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  unlockBg();
+}
+
+function renderYearScope(){
+  const box = document.getElementById('yearScopeOpts');
+  const row = document.getElementById('yearScopeRow');
+  if(!box || !row) return;
+  if(catGroups.length === 0){ row.style.display = 'none'; box.innerHTML = ''; return; }
+  row.style.display = '';
+  let html = '<div class="gt-opt' + (!yearScope ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (yearScope === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{ yearScope = el.getAttribute('data-g') || null; yearActiveCat = null; renderYear(); };
+  });
+}
+
+// Meses del año a mostrar: del primero con datos hasta el último con datos
+// (o hasta el mes actual, si es el año en curso).
+function yearSeries(){
+  const now = new Date();
+  const isCurrentYear = yearView === now.getFullYear();
+  let first = -1, lastWith = -1;
+  for(let m = 0; m <= 11; m++){
+    if(yearMonthExpenses(yearView, m, yearScope).length > 0){
+      if(first === -1) first = m;
+      lastWith = m;
+    }
+  }
+  if(first === -1){
+    if(isCurrentYear) return [{month: now.getMonth(), v:0, gross:0, inProgress:true}];
+    return [];
+  }
+  const end = isCurrentYear ? Math.max(lastWith, now.getMonth()) : lastWith;
+  const out = [];
+  for(let m = first; m <= end; m++){
+    out.push({
+      month: m,
+      v: yearMonthNet(yearView, m, yearScope),
+      gross: yearMonthGross(yearView, m, yearScope),
+      inProgress: isCurrentYear && m === now.getMonth()
+    });
+  }
+  return out;
+}
+
+function yearMonthName(m){
+  return cap(new Date(yearView, m, 1).toLocaleDateString('es-PE', {month:'long'}));
+}
+
+function renderYear(){
+  const page = document.getElementById('yearPage');
+  if(!page || !page.classList.contains('open')) return;
+  document.getElementById('yearLabel').textContent = String(yearView);
+  renderYearScope();
+
+  const now = new Date();
+  const series = yearSeries();
+  const scopeName = yearScope ? ((catGroups.find(x=>x.id===yearScope)||{}).name || 'grupo') : 'Todos';
+  const totalNet = series.reduce((s,x)=> s + x.v, 0);
+  const totalGross = series.reduce((s,x)=> s + x.gross, 0);
+  const recovered = totalGross - totalNet;
+  const withData = series.filter(s=> s.gross > 0).length;
+
+  let sumHtml = '<div class="year-scope-line">' + scopeName + ' · ' + yearView + '</div>' +
+    '<div class="year-total">S/ ' + fmt(totalNet) + '</div>' +
+    '<div class="year-total-sub">' + withData + (withData === 1 ? ' mes con registro' : ' meses con registro') + '</div>';
+  if(recovered > 0.005){
+    sumHtml += '<div class="year-total-sub">Bruto S/ ' + fmt(totalGross) + ' · 💰 recuperaste S/ ' + fmt(recovered) + ' de cashback</div>';
+  }
+  document.getElementById('yearSummary').innerHTML = sumHtml;
+
+  // Bloque del mes en curso: comparación contra el MISMO tramo de días.
+  const curEl = document.getElementById('yearCurrent');
+  const cur = series.find(s=> s.inProgress);
+  if(cur){
+    const today = now.getDate();
+    const curWindow = yearMonthGross(yearView, cur.month, yearScope, today);
+    const others = series.filter(s=> !s.inProgress && s.gross > 0);
+    let html = '<div class="year-cur-title">📌 ' + yearMonthName(cur.month) + ' está en curso (día ' + today + ')</div>';
+    const avgWindow = others.length
+      ? others.reduce((s,o)=> s + yearMonthGross(yearView, o.month, yearScope, today), 0) / others.length
+      : 0;
+    if(avgWindow > 0.005){
+      const pct = (curWindow - avgWindow) / avgWindow * 100;
+      const up = pct >= 0;
+      html += '<div class="year-cur-body">En el mismo tramo (día 1–' + today + ') vas <b>S/ ' + fmt(curWindow) +
+        '</b>; los otros meses promediaron <b>S/ ' + fmt(avgWindow) + '</b> ' +
+        '<span class="year-cur-pct ' + (up ? 'up' : 'down') + '">' + (up ? '▲ +' : '▼ −') + Math.abs(pct).toFixed(0) + '%</span></div>';
+    } else {
+      html += '<div class="year-cur-body">Vas S/ ' + fmt(curWindow) + ' en lo que va del mes.</div>';
+    }
+    curEl.innerHTML = html;
+    curEl.style.display = '';
+  } else {
+    curEl.innerHTML = '';
+    curEl.style.display = 'none';
+  }
+
+  // Barras mes a mes + lista con montos (ambas llevan al mes en la pantalla principal).
+  const barsBox = document.getElementById('yearMonthsBars');
+  const listBox = document.getElementById('yearMonthsList');
+  if(series.length === 0){
+    barsBox.innerHTML = '';
+    listBox.innerHTML = '<div class="empty">Sin gastos registrados en ' + yearView + '.</div>';
+  } else {
+    const maxV = Math.max(...series.map(s=>s.v), 1);
+    barsBox.innerHTML = series.map(s=>{
+      const h = s.v > 0 ? Math.max(s.v / maxV * 100, 4) : 2;
+      const lbl = new Date(yearView, s.month, 1).toLocaleDateString('es-PE', {month:'short'}).replace('.','');
+      return '<div class="mbar sim-mbar' + (s.inProgress ? ' current' : '') + '" data-month="' + s.month + '">' +
+               '<div class="col" style="height:' + h + '%"></div>' +
+               '<div class="mlbl">' + lbl + '</div>' +
+             '</div>';
+    }).join('');
+    listBox.innerHTML = [...series].reverse().map(s=>
+      '<div class="ml-row' + (s.inProgress ? ' current' : '') + '" data-month="' + s.month + '">' +
+        '<span class="ml-name">' + yearMonthName(s.month) + (s.inProgress ? ' <span class="year-inprogress">en curso</span>' : '') + '</span>' +
+        '<span class="ml-amt">S/ ' + fmt(s.v) + '</span>' +
+      '</div>'
+    ).join('');
+    const goMonth = (el)=>{
+      viewYear = yearView;
+      viewMonth = parseInt(el.getAttribute('data-month'), 10);
+      renderAll();
+      closeYearPage();
+    };
+    barsBox.querySelectorAll('.sim-mbar').forEach(el=> el.addEventListener('click', ()=> goMonth(el)));
+    listBox.querySelectorAll('.ml-row').forEach(el=> el.addEventListener('click', ()=> goMonth(el)));
+  }
+
+  renderYearDonut(series);
+  renderYearHighlights(series);
+  renderYearBudget(series);
+}
+
+// Donut por categoría de TODO el año (bruto). Tocar un segmento lo enfoca.
+function renderYearDonut(series){
+  const svg = document.getElementById('yearDonutSvg');
+  const legend = document.getElementById('yearDonutLegend');
+  const labelEl = document.getElementById('yearDonutLabel');
+  const value = document.getElementById('yearDonutValue');
+  const pctEl = document.getElementById('yearDonutPct');
+  if(!svg) return;
+  const byCat = {};
+  series.forEach(s=>{
+    yearMonthExpenses(yearView, s.month, yearScope).forEach(e=>{
+      byCat[e.category] = (byCat[e.category] || 0) + e.amount;
+    });
+  });
+  const rows = Object.keys(byCat)
+    .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, icon:c.icon, name:c.name, total:byCat[id]}; })
+    .filter(r=> r.total > 0)
+    .sort((a,b)=> b.total - a.total);
+  const grand = rows.reduce((s,r)=> s + r.total, 0);
+  if(yearActiveCat && !rows.some(r=>r.id === yearActiveCat)) yearActiveCat = null;
+
+  const setCenter = ()=>{
+    if(yearActiveCat){
+      const row = rows.find(r=>r.id === yearActiveCat);
+      labelEl.textContent = row.icon + ' ' + row.name;
+      fitDonutValue(value, fmt(row.total), true);
+      if(pctEl) pctEl.textContent = (row.total/grand*100).toFixed(1) + '% del año';
+    } else {
+      labelEl.textContent = 'Total';
+      fitDonutValue(value, fmt(grand), false);
+      if(pctEl) pctEl.textContent = '';
+    }
+  };
+
+  if(grand === 0){
+    svg.innerHTML = '';
+    legend.innerHTML = '<div class="sim-donut-empty">Sin gastos en ' + yearView + '.</div>';
+    labelEl.textContent = 'Total';
+    fitDonutValue(value, fmt(0), false);
+    if(pctEl) pctEl.textContent = '';
+    return;
+  }
+
+  const cx = 60, cy = 60, r = 46, C = 2 * Math.PI * r;
+  let offset = 0, segs = '';
+  rows.forEach(row=>{
+    const len = row.total / grand * C;
+    const active = yearActiveCat === row.id;
+    segs += '<circle class="seg' + (active ? ' active' : '') + '" data-cat="' + row.id + '" cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + categoryDotColor(row.id) + '" stroke-width="14" stroke-dasharray="' + len + ' ' + (C - len) + '" stroke-dashoffset="' + (-offset) + '"></circle>';
+    offset += len;
+  });
+  svg.innerHTML = segs;
+  legend.innerHTML = rows.map(row=>{
+    const active = yearActiveCat === row.id;
+    return '<div class="leg' + (active ? ' active' : '') + '" data-cat="' + row.id + '"><span class="dot" style="background:' + categoryDotColor(row.id) + '"></span>' + row.name + ' <span class="leg-amt">S/ ' + fmt(row.total) + '</span></div>';
+  }).join('');
+  setCenter();
+  const pick = (id)=>{ yearActiveCat = (yearActiveCat === id) ? null : id; renderYearDonut(series); };
+  svg.querySelectorAll('.seg').forEach(el=> el.addEventListener('click', ()=> pick(el.getAttribute('data-cat'))));
+  legend.querySelectorAll('.leg').forEach(el=> el.addEventListener('click', ()=> pick(el.getAttribute('data-cat'))));
+}
+
+// Destacados: mes más caro/barato, promedio, variación del último mes cerrado,
+// categoría con más gasto y cuál subió/bajó más entre los dos últimos cerrados.
+function renderYearHighlights(series){
+  const box = document.getElementById('yearHighlights');
+  if(!box) return;
+  const closed = series.filter(s=> !s.inProgress && s.v > 0);
+  const rows = [];
+  if(closed.length > 0){
+    const most = closed.reduce((a,b)=> b.v > a.v ? b : a);
+    const avg = closed.reduce((s,x)=> s + x.v, 0) / closed.length;
+    rows.push(['📈 Mes más caro', yearMonthName(most.month) + ' · S/ ' + fmt(most.v)]);
+    if(closed.length > 1){
+      const least = closed.reduce((a,b)=> b.v < a.v ? b : a);
+      rows.push(['📉 Mes más barato', yearMonthName(least.month) + ' · S/ ' + fmt(least.v)]);
+    }
+    rows.push(['📊 Promedio mensual', 'S/ ' + fmt(avg) + ' (' + closed.length + (closed.length === 1 ? ' mes cerrado' : ' meses cerrados') + ')']);
+    if(closed.length > 1){
+      const last = closed[closed.length-1], prev = closed[closed.length-2];
+      const diff = prev.v > 0 ? (last.v - prev.v) / prev.v * 100 : 0;
+      const up = diff >= 0;
+      rows.push([(up ? '⬆️' : '⬇️') + ' ' + yearMonthName(last.month) + ' vs ' + yearMonthName(prev.month),
+        (up ? '+' : '−') + Math.abs(diff).toFixed(0) + '% (S/ ' + fmt(last.v) + ' vs S/ ' + fmt(prev.v) + ')']);
+    }
+  }
+  const byCat = {};
+  series.forEach(s=> yearMonthExpenses(yearView, s.month, yearScope).forEach(e=>{ byCat[e.category] = (byCat[e.category]||0) + e.amount; }));
+  const catRows = Object.keys(byCat).map(id=>({id:id, total:byCat[id]})).sort((a,b)=> b.total - a.total);
+  const grand = catRows.reduce((s,r)=> s + r.total, 0);
+  if(catRows.length > 0 && grand > 0){
+    const top = catRows[0];
+    const c = catById(top.id) || {icon:'🗂️', name:'Otros'};
+    rows.push(['🏆 Categoría con más gasto', c.icon + ' ' + c.name + ' · S/ ' + fmt(top.total) + ' (' + (top.total/grand*100).toFixed(0) + '%)']);
+  }
+  if(closed.length > 1){
+    const last = closed[closed.length-1], prev = closed[closed.length-2];
+    const catDiff = {};
+    yearMonthExpenses(yearView, last.month, yearScope).forEach(e=>{ catDiff[e.category] = (catDiff[e.category]||0) + e.amount; });
+    yearMonthExpenses(yearView, prev.month, yearScope).forEach(e=>{ catDiff[e.category] = (catDiff[e.category]||0) - e.amount; });
+    const diffs = Object.keys(catDiff).map(id=>({id:id, d:catDiff[id]})).filter(x=> Math.abs(x.d) > 0.005);
+    if(diffs.length > 0){
+      const up = diffs.reduce((a,b)=> b.d > a.d ? b : a);
+      const down = diffs.reduce((a,b)=> b.d < a.d ? b : a);
+      if(up.d > 0){
+        const c = catById(up.id) || {icon:'🗂️', name:'Otros'};
+        rows.push(['⬆️ La que más subió', c.icon + ' ' + c.name + ' · +S/ ' + fmt(up.d) + ' vs ' + yearMonthName(prev.month)]);
+      }
+      if(down.d < 0){
+        const c = catById(down.id) || {icon:'🗂️', name:'Otros'};
+        rows.push(['⬇️ La que más bajó', c.icon + ' ' + c.name + ' · −S/ ' + fmt(Math.abs(down.d)) + ' vs ' + yearMonthName(prev.month)]);
+      }
+    }
+  }
+  box.innerHTML = rows.length
+    ? rows.map(r=> '<div class="year-hl-row"><span class="year-hl-k">' + r[0] + '</span><span class="year-hl-v">' + r[1] + '</span></div>').join('')
+    : '<div class="empty">Aún no hay meses cerrados para comparar en ' + yearView + '.</div>';
+}
+
+// Avisos: meses donde se pasó del presupuesto general/de grupo, y categorías
+// que se pasaron de su tope en algún mes del año.
+function renderYearBudget(series){
+  const box = document.getElementById('yearBudget');
+  if(!box) return;
+  const rows = [];
+  const budgetKey = yearScope ? yearScope : 'general';
+  series.forEach(s=>{
+    const bucket = monthBudgets[budgetMonthKey(yearView, s.month)];
+    const limit = (bucket && bucket[budgetKey] > 0) ? bucket[budgetKey] : null;
+    if(limit != null && s.v > limit){
+      rows.push(['⚠️ ' + yearMonthName(s.month) + (s.inProgress ? ' (en curso)' : ''),
+        'Te pasaste S/ ' + fmt(s.v - limit) + ' — S/ ' + fmt(s.v) + ' de S/ ' + fmt(limit)]);
+    }
+  });
+  series.forEach(s=>{
+    const catBucket = categoryBudgets[budgetMonthKey(yearView, s.month)];
+    if(!catBucket) return;
+    const monthList = yearMonthExpenses(yearView, s.month, yearScope);
+    Object.keys(catBucket).forEach(catId=>{
+      const limit = catBucket[catId];
+      if(!(limit >= 0)) return;
+      const spent = monthList.filter(e=> e.category === catId).reduce((a,e)=> a + e.amount, 0);
+      if(spent > limit){
+        const c = catById(catId) || {icon:'🗂️', name:'Otros'};
+        rows.push(['⚠️ ' + c.icon + ' ' + c.name + ' · ' + yearMonthName(s.month),
+          'Te pasaste S/ ' + fmt(spent - limit) + ' — S/ ' + fmt(spent) + ' de S/ ' + fmt(limit)]);
+      }
+    });
+  });
+  box.innerHTML = rows.length
+    ? rows.map(r=> '<div class="year-hl-row over"><span class="year-hl-k">' + r[0] + '</span><span class="year-hl-v">' + r[1] + '</span></div>').join('')
+    : '<div class="year-ok">✅ No te pasaste de ningún presupuesto en ' + yearView + '.</div>';
+}
+
+document.getElementById('yearBtn').addEventListener('click', openYearPage);
+document.getElementById('yearBack').addEventListener('click', closeYearPage);
+document.getElementById('yearPrev').addEventListener('click', ()=>{ yearView--; yearActiveCat = null; renderYear(); });
+document.getElementById('yearNext').addEventListener('click', ()=>{ yearView++; yearActiveCat = null; renderYear(); });
+
 /* ---------- Página de Cashback ---------- */
 let cbEditingId = null;
+let cbShowHistory = false; // el histórico acumulado va oculto tras un botón; por defecto se ve solo el mes
 
 // Pills para elegir el grupo "negocio" que NO recibe cashback.
 function renderCbScope(){
@@ -3641,14 +4052,21 @@ function renderCashbackList(){
   const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
 
   let html = 'Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) +
-    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>' +
-    '<span class="cb-hist-title">Histórico (toda la app)</span>' +
-    '<span class="cb-used">Retirado en total: S/ ' + fmt(totalRegistered) + '</span>' +
-    '<span class="cb-used">Recuperado en total: S/ ' + fmt(usedAllTime) + '</span>';
+    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>';
   if(withdrawnThisMonth - usedThisMonth > 0.005){
     html += '<span class="cb-used">El cashback se refleja solo dentro de ' + monthName + ' — lo que no alcanzó a cubrirse con gastos de ese mes no pasa al siguiente.</span>';
   }
+  // El histórico acumulado de toda la app va oculto tras un botón.
+  html += '<button class="cb-hist-btn" id="cbHistBtn" type="button">' +
+    (cbShowHistory ? 'Ocultar histórico ▴' : 'Ver histórico ▾') + '</button>';
+  if(cbShowHistory){
+    html += '<span class="cb-hist-title">Histórico (toda la app)</span>' +
+      '<span class="cb-used">Retirado en total: S/ ' + fmt(totalRegistered) + '</span>' +
+      '<span class="cb-used">Recuperado en total: S/ ' + fmt(usedAllTime) + '</span>';
+  }
   balanceEl.innerHTML = html;
+  const histBtn = document.getElementById('cbHistBtn');
+  if(histBtn) histBtn.addEventListener('click', ()=>{ cbShowHistory = !cbShowHistory; renderCashbackList(); });
 
   renderCbScope();
 
@@ -3656,8 +4074,17 @@ function renderCashbackList(){
     box.innerHTML = '<div class="empty">Aún no registras cashback. Agrega tu primer retiro con el botón de abajo.</div>';
     return;
   }
-  const sorted = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
-  box.innerHTML = sorted.map(c=>{
+  // Por defecto se listan solo los retiros del mes que se está viendo (mes tras
+  // mes, igual que el resumen de arriba). Con "Ver histórico" se ven todos.
+  let shown = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
+  if(!cbShowHistory){
+    shown = shown.filter(c=>{ const d = new Date(c.date); return d.getFullYear() === viewYear && d.getMonth() === viewMonth; });
+  }
+  if(shown.length === 0){
+    box.innerHTML = '<div class="empty">Sin retiros de cashback en ' + cap(monthName) + '. Toca "Ver histórico" para ver todos.</div>';
+    return;
+  }
+  box.innerHTML = shown.map(c=>{
     const d = new Date(c.date);
     const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'});
     return '<div class="rec-item" data-id="' + c.id + '">' +
@@ -3732,14 +4159,14 @@ function openCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 function closeCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 
 document.getElementById('cashbackBtn').addEventListener('click', openCashbackPage);

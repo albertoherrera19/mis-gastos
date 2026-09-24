@@ -29,6 +29,7 @@
     <div class="header-right">
       <div class="header-btns">
         <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁<span class="rec-alert-badge" id="recAlertBadge" style="display:none">!</span></div>
+        <div class="gear-btn" id="yearBtn" title="Resumen del año">🗓️</div>
         <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
         <div class="gear-btn" id="gearBtn">⚙️</div>
       </div>
@@ -420,6 +421,48 @@
       </div>
     </div>
     <div class="sim-list" id="simList"></div>
+  </div>
+</div>
+
+<!-- Resumen del año (página completa) -->
+<div class="cat-detail-page recurring-page" id="yearPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="yearBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Resumen del año</span></div>
+  </div>
+  <div class="edit-card">
+    <div class="sim-month-nav">
+      <button class="sim-mn-btn" id="yearPrev" type="button" aria-label="Año anterior">‹</button>
+      <span class="sim-mn-label" id="yearLabel">2026</span>
+      <button class="sim-mn-btn" id="yearNext" type="button" aria-label="Año siguiente">›</button>
+    </div>
+    <div class="sim-scope-row" id="yearScopeRow">
+      <span class="sim-scope-label">Ver:</span>
+      <div class="group-tag-opts" id="yearScopeOpts"></div>
+    </div>
+    <div class="year-summary" id="yearSummary"></div>
+    <div class="year-current" id="yearCurrent"></div>
+    <div class="sim-graph-title">Gasto mes a mes</div>
+    <div class="months-card">
+      <div class="months-bars" id="yearMonthsBars"></div>
+      <div class="months-list" id="yearMonthsList"></div>
+    </div>
+    <div class="sim-graph-title">Gasto por categoría del año</div>
+    <div class="sim-donut-card">
+      <div class="donut-wrap">
+        <svg id="yearDonutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto por categoría del año"></svg>
+        <div class="donut-center">
+          <div class="donut-center-label" id="yearDonutLabel">Total</div>
+          <div class="donut-center-value" id="yearDonutValue">S/ 0.00</div>
+          <div class="donut-center-pct" id="yearDonutPct"></div>
+        </div>
+      </div>
+      <div class="donut-legend" id="yearDonutLegend"></div>
+    </div>
+    <div class="sim-graph-title">Destacados</div>
+    <div class="year-highlights" id="yearHighlights"></div>
+    <div class="sim-graph-title">Presupuestos</div>
+    <div class="year-budget" id="yearBudget"></div>
   </div>
 </div>
 
