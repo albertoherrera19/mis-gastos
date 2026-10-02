@@ -488,6 +488,18 @@
       <button class="cd-budget-btn" id="rgSave" type="button">Guardar</button>
       <button class="cd-budget-btn cd-budget-clear" id="rgClear" type="button">Quitar</button>
     </div>
+    <div class="rg-filter-block">
+      <div class="cd-color-title cd-budget-title">¿Qué cuenta en este límite?</div>
+      <div class="rg-exp-hint">Por defecto cuenta el grupo donde creas el límite. Si además marcas categorías, solo esas cuentan; si no marcas ninguna, cuentan todas. Esto se guarda al toque (el botón "Guardar" es solo para las fechas y el monto).</div>
+      <div class="group-tag-row">
+        <span class="group-tag-label">Grupo</span>
+        <div class="group-tag-opts" id="rgGroupOpts"></div>
+      </div>
+      <div class="group-tag-row">
+        <span class="group-tag-label">Solo estas categorías</span>
+        <div class="group-tag-opts" id="rgCatOpts"></div>
+      </div>
+    </div>
     <div class="rg-exp-block" id="rgExpBlock" style="display:none">
       <div class="cd-color-title cd-budget-title">Gastos en este rango</div>
       <div class="rg-exp-hint">Marca los que NO quieras que cuenten para este límite (ej. comida, un gasto fijo). Lo que dejes sin marcar suma al total.</div>

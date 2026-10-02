@@ -152,6 +152,8 @@ h1{
 .rg-dates-row{display:flex;gap:10px;margin-bottom:6px;}
 .rg-date-field{flex:1;display:flex;flex-direction:column;gap:4px;}
 .rg-date-field span{font-size:11px;color:var(--muted);font-weight:700;}
+.rg-filter-block{margin-top:16px;}
+.rg-filter-block .group-tag-row{margin-bottom:10px;}
 .rg-exp-block{margin-top:16px;}
 .rg-exp-hint{font-size:12px;color:var(--muted);margin:2px 0 10px;line-height:1.4;}
 .rg-exp-list{display:flex;flex-direction:column;gap:6px;}
