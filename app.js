@@ -58,7 +58,8 @@ const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables
 const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
-const FREQ_NOTE_KEY = 'timeless_freq_notes'; // nota frecuente por categoría, para llenar la Nota de un toque
+const FREQ_NOTE_KEY = 'timeless_freq_notes'; // notas frecuentes por categoría, para llenar la Nota de un toque
+const RANGE_BAR_HIDDEN_KEY = 'timeless_range_bar_hidden'; // barrita del límite por rango oculta en la pantalla principal
 // (En el repo de amigos este flag va en false — diferencia intencional:
 // no se pre-crea ningún grupo, el usuario los crea si quiere.)
 const PRECREATE_GROUPS = false;
@@ -71,11 +72,42 @@ let lastAccentTheme = 'azul';
 
 let catOverrides = {};   // {catId: {name, icon}} — ediciones sobre categorías base o personalizadas
 let deletedBaseCats = []; // ids de BASE_CATEGORIES que el usuario eliminó en este dispositivo
-let catFrequentNotes = {}; // {catId: texto} — nota frecuente por categoría (botón rápido al agregar un gasto)
+let catFrequentNotes = {}; // {catId: [texto, ...]} — notas frecuentes por categoría (botones rápidos al agregar un gasto)
 
 function loadFrequentNotes(){
   try{ catFrequentNotes = JSON.parse(localStorage.getItem(FREQ_NOTE_KEY)) || {}; }
   catch(e){ catFrequentNotes = {}; }
+  // Formato viejo: una sola nota por categoría como texto. Se migra a lista.
+  let migrado = false;
+  Object.keys(catFrequentNotes).forEach(id=>{
+    const v = catFrequentNotes[id];
+    if(typeof v === 'string'){
+      if(v.trim()) catFrequentNotes[id] = [v.trim()]; else delete catFrequentNotes[id];
+      migrado = true;
+    } else if(!Array.isArray(v)){
+      delete catFrequentNotes[id]; migrado = true;
+    } else if(v.length === 0){
+      delete catFrequentNotes[id]; migrado = true;
+    }
+  });
+  if(migrado) saveFrequentNotes();
+}
+// Notas de una categoría (copia, para poder editarla sin tocar el original).
+function freqNotesOf(catId){
+  const v = catFrequentNotes[catId];
+  if(Array.isArray(v)) return v.slice();
+  if(typeof v === 'string' && v.trim()) return [v.trim()];
+  return [];
+}
+// Guarda la lista de una categoría: limpia vacíos y repetidos; si queda vacía, borra la entrada.
+function setFreqNotes(catId, list){
+  const limpias = [];
+  (list || []).forEach(t=>{
+    const txt = String(t).trim();
+    if(txt && limpias.indexOf(txt) === -1) limpias.push(txt);
+  });
+  if(limpias.length) catFrequentNotes[catId] = limpias; else delete catFrequentNotes[catId];
+  saveFrequentNotes();
 }
 function saveFrequentNotes(){
   try{ localStorage.setItem(FREQ_NOTE_KEY, JSON.stringify(catFrequentNotes)); }catch(e){}
@@ -197,7 +229,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY, RANGE_BAR_HIDDEN_KEY];
 
 function exportBackup(){
   const data = {};
@@ -310,6 +342,7 @@ function saveCustomCategories(){
 }
 
 let catFormEditId = null; // null = modo crear categoría; id = editando esa categoría
+let catFormFreqNotes = []; // borrador de notas frecuentes mientras se crea/edita la categoría
 let catsEditMode = false; // true = muestra ✎/✕ en cada categoría (evita ruido/misclicks al agregar gastos)
 
 function renderCats(){
@@ -530,21 +563,73 @@ document.querySelectorAll('#stockOnlyOpts .gt-opt').forEach(el=>{
 // Botón rápido para llenar la Nota con el texto frecuente de la categoría
 // elegida (ej: "ISIL" en Pasajes) — se configura en "editar categoría".
 function renderFreqNoteBtn(){
-  const btn = document.getElementById('freqNoteBtn');
-  if(!btn) return;
-  const cat = selectedCat ? catById(selectedCat) : null;
-  const note = cat ? catFrequentNotes[cat.id] : null;
-  if(note){
-    document.getElementById('freqNoteBtnText').textContent = note;
-    btn.style.display = '';
-  } else {
-    btn.style.display = 'none';
-  }
+  const row = document.getElementById('freqNoteRow');
+  if(!row) return;
+  const notas = selectedCat ? freqNotesOf(selectedCat) : [];
+  row.innerHTML = '';
+  if(notas.length === 0){ row.style.display = 'none'; return; }
+  row.style.display = '';
+  notas.forEach(txt=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'freq-note-btn';
+    b.textContent = '🕘 ' + txt;
+    b.addEventListener('click', ()=>{
+      document.getElementById('noteInput').value = txt;
+      validateForm();
+    });
+    row.appendChild(b);
+  });
 }
-document.getElementById('freqNoteBtn').addEventListener('click', ()=>{
-  document.getElementById('noteInput').value = document.getElementById('freqNoteBtnText').textContent;
-  validateForm();
-});
+// Editor de notas frecuentes: una fila por nota (editable + ✕ para quitarla) y
+// una fila al final para agregar otra. Se usa igual en "editar categoría" (sobre
+// un borrador que se guarda al confirmar) y en el engranaje (guarda al toque).
+function renderFreqNoteEditor(boxId, getList, setList){
+  const box = document.getElementById(boxId);
+  if(!box) return;
+  const lista = getList();
+  box.innerHTML = '';
+  lista.forEach((txt, i)=>{
+    const fila = document.createElement('div');
+    fila.className = 'fn-row';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.maxLength = 60; inp.className = 'fn-input'; inp.value = txt;
+    inp.addEventListener('change', ()=>{
+      const l = getList(); l[i] = inp.value;
+      setList(l);
+      renderFreqNoteEditor(boxId, getList, setList);
+    });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'fn-del'; del.textContent = '✕';
+    del.setAttribute('aria-label', 'Quitar esta nota');
+    del.addEventListener('click', ()=>{
+      const l = getList(); l.splice(i, 1);
+      setList(l);
+      renderFreqNoteEditor(boxId, getList, setList);
+    });
+    fila.appendChild(inp); fila.appendChild(del);
+    box.appendChild(fila);
+  });
+  const addFila = document.createElement('div');
+  addFila.className = 'fn-row fn-add';
+  const addInp = document.createElement('input');
+  addInp.type = 'text'; addInp.maxLength = 60; addInp.className = 'fn-input';
+  addInp.placeholder = lista.length ? 'Otra nota — ej: Temu' : 'ej: Shein';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button'; addBtn.className = 'cd-budget-btn fn-add-btn'; addBtn.textContent = 'Agregar';
+  const agregar = ()=>{
+    if(!addInp.value.trim()) return;
+    const l = getList(); l.push(addInp.value);
+    setList(l);
+    renderFreqNoteEditor(boxId, getList, setList);
+    const nuevo = box.querySelector('.fn-add .fn-input');
+    if(nuevo) nuevo.focus();
+  };
+  addBtn.addEventListener('click', agregar);
+  addInp.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); agregar(); } });
+  addFila.appendChild(addInp); addFila.appendChild(addBtn);
+  box.appendChild(addFila);
+}
 
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   catsEditMode = !catsEditMode;
@@ -562,17 +647,21 @@ function renderCatFormGroupTag(){
   });
 }
 
+function renderCatFormFreqNotes(){
+  renderFreqNoteEditor('catFormFreqNotes',
+    ()=> catFormFreqNotes.slice(),
+    l=>{ catFormFreqNotes = l; });
+}
 function openCatForm(editCat){
   const form = document.getElementById('newCatForm');
   const nameInp = document.getElementById('newCatName');
   const emojiInp = document.getElementById('newCatEmoji');
-  const freqNoteInp = document.getElementById('newCatFreqNote');
   const confirmBtn = document.getElementById('confirmNewCat');
   if(editCat){
     catFormEditId = editCat.id;
     nameInp.value = editCat.name;
     emojiInp.value = editCat.icon;
-    freqNoteInp.value = catFrequentNotes[editCat.id] || '';
+    catFormFreqNotes = freqNotesOf(editCat.id);
     confirmBtn.textContent = 'Guardar cambios';
     const g = catGroups.find(x=> x.cats.indexOf(editCat.id) !== -1);
     catFormGroupId = g ? g.id : null;
@@ -580,10 +669,11 @@ function openCatForm(editCat){
     catFormEditId = null;
     nameInp.value = '';
     emojiInp.value = '';
-    freqNoteInp.value = '';
+    catFormFreqNotes = [];
     confirmBtn.textContent = 'Crear categoría';
     catFormGroupId = null;
   }
+  renderCatFormFreqNotes();
   renderCatFormGroupTag();
   form.classList.add('open');
   nameInp.focus();
@@ -595,7 +685,8 @@ function closeCatForm(){
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
-  document.getElementById('newCatFreqNote').value = '';
+  catFormFreqNotes = [];
+  renderCatFormFreqNotes();
   document.getElementById('confirmNewCat').textContent = 'Crear categoría';
 }
 
@@ -641,9 +732,8 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
   }
   if(groupsChanged) saveCatGroups();
 
-  const freqNote = document.getElementById('newCatFreqNote').value.trim();
-  if(freqNote) catFrequentNotes[catId] = freqNote; else delete catFrequentNotes[catId];
-  saveFrequentNotes();
+  setFreqNotes(catId, catFormFreqNotes);
+  renderFreqNoteBtn();
 
   closeCatForm();
   renderCats();
@@ -764,23 +854,34 @@ function passesActiveGroup(e){
 // frena el scroll táctil; fijar el body con position:fixed sí. Se guarda y
 // restaura la posición de scroll. Un contador soporta overlays apilados (ej.
 // abrir "editar gasto" encima del detalle de categoría) sin perder la posición.
-let _bgScrollY = 0, _bgLockDepth = 0;
-function lockBg(){
-  if(_bgLockDepth === 0){
+let _bgScrollY = 0;
+// ¿Hay alguna pantalla overlay abierta? Todas comparten la clase .cat-detail-page.
+function anyOverlayOpen(){
+  return !!document.querySelector('.cat-detail-page.open');
+}
+// Pone el bloqueo del fondo de acuerdo a lo que DE VERDAD está abierto. Antes
+// esto era un contador y se desbalanceaba (abrir dos veces la misma pantalla
+// dejaba el body trabado y la app sin scroll). Al deducirlo del DOM es
+// idempotente: se puede llamar de más sin romper nada, y cualquier render
+// posterior corrige un estado trabado.
+function syncBgLock(){
+  const debeBloquear = anyOverlayOpen();
+  const bloqueado = document.body.classList.contains('cd-open');
+  if(debeBloquear === bloqueado) return;
+  if(debeBloquear){
     _bgScrollY = window.scrollY || document.documentElement.scrollTop || 0;
     document.body.style.top = (-_bgScrollY) + 'px';
     document.body.classList.add('cd-open');
-  }
-  _bgLockDepth++;
-}
-function unlockBg(){
-  _bgLockDepth = Math.max(0, _bgLockDepth - 1);
-  if(_bgLockDepth === 0){
+  } else {
     document.body.classList.remove('cd-open');
     document.body.style.top = '';
     window.scrollTo(0, _bgScrollY);
   }
 }
+// Se mantienen los dos nombres para no tocar las ~9 pantallas que los usan:
+// se llaman DESPUÉS de poner/quitar la clase .open de la pantalla.
+function lockBg(){ syncBgLock(); }
+function unlockBg(){ syncBgLock(); }
 
 // Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
 // gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
@@ -941,6 +1042,7 @@ function renderAll(){
   renderRangeGoalBars(); // solo las barras: los campos del formulario los llena openRangeGoalPage
   renderMonths();
   renderFeed();
+  syncBgLock(); // red de seguridad: si quedó trabado sin pantalla abierta, se suelta
 }
 
 function currentMonthExpenses(){
@@ -2171,7 +2273,9 @@ function openCategoryDetail(catId){
     const mName = cap(new Date(cdYear, cdMonth, 1).toLocaleDateString('es-PE', {month:'long'}));
     cdBudgetTitle.textContent = 'Presupuesto de ' + mName + ' (opcional)';
   }
-  document.getElementById('cdFreqNoteInput').value = catFrequentNotes[catId] || '';
+  renderFreqNoteEditor('cdFreqNotes',
+    ()=> freqNotesOf(catId),
+    l=>{ setFreqNotes(catId, l); renderFreqNoteBtn(); });
   renderBudgetBar(catId, monthTotal);
 
   const page = document.getElementById('catDetailPage');
@@ -2478,6 +2582,33 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
    de esas categorías (ej. un límite personal que no debe tocar "Ads"); vacío =
    cuentan todas. El grupo y las categorías también se guardan al toque. */
 let rangeGoal = null; // {from, to, amount, excluded:[ids], group:id|null, cats:[catIds]} | null
+// La barrita del límite en la pantalla principal se puede ocultar (con el ojo de
+// la propia barrita o desde ⚙️ Ajustes) para que no ocupe espacio. Oculta, queda
+// solo una línea chiquita con el ojo tachado para volver a prenderla.
+let rangeBarHidden = false;
+function loadRangeBarHidden(){
+  try{ rangeBarHidden = localStorage.getItem(RANGE_BAR_HIDDEN_KEY) === '1'; }
+  catch(e){ rangeBarHidden = false; }
+}
+function saveRangeBarHidden(){
+  try{
+    if(rangeBarHidden) localStorage.setItem(RANGE_BAR_HIDDEN_KEY, '1');
+    else localStorage.removeItem(RANGE_BAR_HIDDEN_KEY);
+  }catch(e){}
+}
+function toggleRangeBarHidden(){
+  rangeBarHidden = !rangeBarHidden;
+  saveRangeBarHidden();
+  renderRangeBarToggle();
+  renderRangeGoalBars();
+}
+// Interruptor del cajón de ⚙️ Ajustes (hace lo mismo que el ojo de la barrita).
+function renderRangeBarToggle(){
+  const b = document.getElementById('rangeBarToggle');
+  if(!b) return;
+  b.textContent = rangeBarHidden ? '🙈 Oculto' : '👁 Visible';
+  b.classList.toggle('on', !rangeBarHidden);
+}
 let rgDraftExcluded = new Set(); // borrador de ids excluidos mientras se edita la página
 let rgDraftGroup = null;         // grupo elegido en la página (borrador)
 let rgDraftCats = new Set();     // categorías elegidas en la página (vacío = todas)
@@ -2601,6 +2732,8 @@ function renderRangeGoalBars(){
   const tease = document.getElementById('rangeGoalTease');
   const bar = document.getElementById('rangeGoalBar');
   const mtBar = document.getElementById('mtRangeGoalBar');
+  const slot = document.getElementById('rgHiddenSlot');
+  if(slot) slot.style.display = rangeBarHidden ? 'flex' : 'none';
   if(!tease) return;
   if(!rangeGoal){
     const destino = activeGroup ? rgGroupName(activeGroup) : null;
@@ -2608,10 +2741,12 @@ function renderRangeGoalBars(){
       (destino ? ' Se aplicará a "' + destino + '" porque es el grupo que tienes activo, pero lo puedes cambiar abajo.' : '');
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
     if(mtBar){
+      if(rangeBarHidden){ ocultarBarraRango(mtBar); return; }
       mtBar.style.display = 'block';
       mtBar.className = 'cd-budget-bar mt-range-bar show';
       mtBar.innerHTML = '<div class="bb-label"><span>📅 Límite por rango de fechas</span>' +
-        '<span class="bb-status">✎ Configurar</span></div>';
+        '<span class="bb-status">✎ Configurar</span>' + ojoHtml() + '</div>';
+      enlazarOjo(mtBar);
     }
     return;
   }
@@ -2643,6 +2778,8 @@ function renderRangeGoalBars(){
     if(!aplica){
       mtBar.style.display = 'none';
       mtBar.innerHTML = '';
+    } else if(rangeBarHidden){
+      ocultarBarraRango(mtBar);
     } else {
       const pct = Math.min(spent / rangeGoal.amount * 100, 100);
       const over = spent > rangeGoal.amount;
@@ -2653,10 +2790,31 @@ function renderRangeGoalBars(){
       mtBar.innerHTML =
         '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + (gName ? ' · ' + gName : '') +
         ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
-        '<span class="bb-status">✎ ' + statusTxt + '</span></div>' +
+        '<span class="bb-status">✎ ' + statusTxt + '</span>' + ojoHtml() + '</div>' +
         '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+      enlazarOjo(mtBar);
     }
   }
+}
+// Ojo de la barrita: tocarlo oculta/muestra, sin abrir la página del límite.
+function ojoHtml(){
+  // Solo se pinta cuando la barrita está visible (oculta no se pinta nada arriba).
+  return '<button type="button" class="bb-eye" aria-label="Ocultar el límite">👁</button>';
+}
+function enlazarOjo(cont){
+  const ojo = cont.querySelector('.bb-eye');
+  if(!ojo) return;
+  ojo.addEventListener('click', e=>{
+    e.stopPropagation(); // el click en la barrita abre la página; el del ojo no
+    toggleRangeBarHidden();
+  });
+}
+// Oculta: la barrita desaparece del todo de la parte de arriba (que es de lo
+// que se trata, ganar espacio). Para volver a prenderla queda el botoncito 🙈
+// de más abajo, debajo del gráfico de "Comparar meses".
+function ocultarBarraRango(mtBar){
+  mtBar.style.display = 'none';
+  mtBar.innerHTML = '';
 }
 // Lista editable de gastos dentro del rango que se está configurando (lee las
 // fechas de los inputs, no del rangeGoal guardado, para que se actualice en vivo
@@ -2736,7 +2894,12 @@ function closeRangeGoalPage(){
   page.setAttribute('aria-hidden', 'true');
   unlockBg();
 }
-document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
+document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
+  if(rangeBarHidden) return; // oculta: solo responde el ojo
+  openRangeGoalPage();
+});
+document.getElementById('rangeBarToggle').addEventListener('click', toggleRangeBarHidden);
+document.getElementById('rgHiddenBtn').addEventListener('click', toggleRangeBarHidden);
 document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
 // Al cambiar las fechas, refresca la lista de gastos del rango en vivo.
 document.getElementById('rgFrom').addEventListener('change', renderRgExpList);
@@ -2908,21 +3071,9 @@ document.getElementById('cdBudgetClear').addEventListener('click', ()=>{
   renderBudgetBar(cdCatId, currentCdMonthTotal());
 });
 
-// Guardar / quitar la nota frecuente desde el panel de ajustes de la categoría
-// (misma nota que se configura en "editar categoría" — quedan sincronizadas).
-document.getElementById('cdFreqNoteSave').addEventListener('click', ()=>{
-  if(!cdCatId) return;
-  const note = document.getElementById('cdFreqNoteInput').value.trim();
-  if(note) catFrequentNotes[cdCatId] = note; else delete catFrequentNotes[cdCatId];
-  saveFrequentNotes();
-  document.getElementById('cdColorPanel').classList.remove('open');
-});
-document.getElementById('cdFreqNoteClear').addEventListener('click', ()=>{
-  if(!cdCatId) return;
-  delete catFrequentNotes[cdCatId];
-  saveFrequentNotes();
-  document.getElementById('cdFreqNoteInput').value = '';
-});
+// Las notas frecuentes del panel de ajustes de la categoría se guardan al toque
+// desde el propio editor (ver renderFreqNoteEditor en openCategoryDetail). Son
+// las MISMAS que se configuran en "editar categoría".
 
 function closeCategoryDetail(){
   const page = document.getElementById('catDetailPage');
@@ -4393,6 +4544,8 @@ loadAvoidable();
 loadSimAutoAvoidCats();
 loadAvoidableExceptions();
 loadRangeGoal();
+loadRangeBarHidden();
+renderRangeBarToggle();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);

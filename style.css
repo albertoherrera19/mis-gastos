@@ -516,7 +516,39 @@ input[type="text"]::placeholder{color:var(--muted);}
 .new-cat-form input[type="text"]{
   margin-bottom:0;
 }
-.new-cat-form #newCatFreqNote{margin:10px 0 0;}
+/* Notas frecuentes: fila de botones rápidos + editor de lista */
+.freq-note-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.fn-editor-title{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;margin:12px 0 6px;}
+.fn-editor{display:flex;flex-direction:column;gap:6px;}
+.fn-row{display:flex;align-items:center;gap:6px;}
+.fn-row .fn-input{flex:1;min-width:0;}
+.fn-del{
+  flex:0 0 auto;background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  font-size:13px;font-weight:700;width:34px;height:34px;border-radius:9px;cursor:pointer;
+}
+.fn-add-btn{flex:0 0 auto;}
+/* Interruptor de preferencia en el cajón de ajustes */
+.pref-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:4px;}
+.pref-label{font-size:13px;font-weight:600;}
+.pref-toggle{
+  background:var(--chip);border:1px solid var(--line);color:var(--muted);
+  font-size:12px;font-weight:700;padding:7px 12px;border-radius:20px;cursor:pointer;white-space:nowrap;
+}
+.pref-toggle.on{background:var(--accent-dim);border-color:var(--accent);color:var(--bone);}
+/* Ojo para ocultar/mostrar la barrita del límite por rango */
+.bb-eye{
+  flex:0 0 auto;background:transparent;border:0;color:inherit;
+  font-size:14px;line-height:1;padding:0 2px;margin-left:6px;cursor:pointer;
+}
+.mt-range-bar .bb-label{align-items:center;}
+.mt-range-bar .bb-label > span:first-child{flex:1;min-width:0;}
+/* Con el límite oculto, la barrita desaparece de arriba y queda solo este
+   botoncito debajo de "Comparar meses" para volver a prenderla. */
+.rg-hidden-slot{display:flex;justify-content:flex-end;margin:-4px 0 10px;}
+.rg-hidden-btn{
+  background:transparent;border:0;color:var(--muted);
+  font-size:15px;line-height:1;padding:2px 2px;cursor:pointer;opacity:.6;
+}
 .freq-note-form-hint{margin:6px 0 10px;}
 .emoji-input{
   width:56px !important;
