@@ -29,7 +29,13 @@
     <div class="header-right">
       <div class="header-btns">
         <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁<span class="rec-alert-badge" id="recAlertBadge" style="display:none">!</span></div>
-        <div class="gear-btn" id="yearBtn" title="Resumen del año">🗓️</div>
+        <span class="hdr-menu-wrap">
+          <div class="gear-btn" id="yearBtn" title="Resúmenes">🗓️</div>
+          <div class="feed-sort-menu hdr-menu" id="resumenMenu">
+            <div class="fs-opt" id="optResumenMes">📆 Resumen del mes</div>
+            <div class="fs-opt" id="optResumenAnio">🗓️ Resumen del año</div>
+          </div>
+        </span>
         <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
         <div class="gear-btn" id="gearBtn">⚙️</div>
       </div>
@@ -50,7 +56,12 @@
       <button class="mt-budget-btn mt-compare-toggle-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
     </div>
     <div class="mt-compare" id="mtCompare"></div>
-    <div class="mt-cashback" id="mtCashback" style="display:none"></div>
+    <div class="mt-cb-row">
+      <div class="mt-cashback" id="mtCashback" style="display:none"></div>
+      <div class="rg-hidden-slot" id="rgHiddenSlot" style="display:none">
+        <button type="button" class="rg-hidden-btn" id="rgHiddenBtn" title="Mostrar el límite por rango de fechas" aria-label="Mostrar el límite por rango de fechas">🙈</button>
+      </div>
+    </div>
     <div class="cd-budget-bar mt-range-bar" id="mtRangeGoalBar" style="display:none" title="Ir a tu límite por rango de fechas"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
       <div class="cd-color-title cd-budget-title" id="mtBudgetTitle">Presupuesto general (opcional)</div>
@@ -61,7 +72,7 @@
         <button class="cd-budget-btn cd-budget-clear" id="mtBudgetClear" type="button">Quitar</button>
       </div>
     </div>
-    <div class="cd-budget-bar" id="mtBudgetBar"></div>
+    <div class="mt-budget-bars" id="mtBudgetBar"></div>
   </div>
 </header>
 
@@ -165,9 +176,6 @@
 <div class="months-card" id="monthsCard">
   <div class="months-bars" id="monthsBars"></div>
   <div class="months-list" id="monthsList"></div>
-</div>
-<div class="rg-hidden-slot" id="rgHiddenSlot" style="display:none">
-  <button type="button" class="rg-hidden-btn" id="rgHiddenBtn" title="Mostrar el límite por rango de fechas" aria-label="Mostrar el límite por rango de fechas">🙈</button>
 </div>
 
 <div class="section-title feed-title">
@@ -471,6 +479,31 @@
     <div class="year-highlights" id="yearHighlights"></div>
     <div class="sim-graph-title">Presupuestos</div>
     <div class="year-budget" id="yearBudget"></div>
+  </div>
+</div>
+
+<!-- Resumen del mes (página completa): presupuesto por categoría y qué ajustar -->
+<div class="cat-detail-page recurring-page" id="monthPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="monthBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Resumen del mes</span></div>
+  </div>
+  <div class="edit-card">
+    <div class="sim-month-nav">
+      <button class="sim-mn-btn" id="msPrev" type="button" aria-label="Mes anterior">‹</button>
+      <span class="sim-mn-label" id="msLabel">Mes</span>
+      <button class="sim-mn-btn" id="msNext" type="button" aria-label="Mes siguiente">›</button>
+    </div>
+    <div class="sim-scope-row" id="msScopeRow">
+      <span class="sim-scope-label">Ver:</span>
+      <div class="group-tag-opts" id="msScopeOpts"></div>
+    </div>
+    <div class="ms-top" id="msTop"></div>
+    <div class="sim-graph-title">Cuánto llevas por categoría</div>
+    <div class="ms-hint">Barra llena = tope del mes. A la derecha, cuánto te queda por gastar (o cuánto te pasaste).</div>
+    <div class="ms-cats" id="msCats"></div>
+    <div class="sim-graph-title">Cómo cuadrar el mes</div>
+    <div class="ms-advice" id="msAdvice"></div>
   </div>
 </div>
 

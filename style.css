@@ -542,13 +542,51 @@ input[type="text"]::placeholder{color:var(--muted);}
 }
 .mt-range-bar .bb-label{align-items:center;}
 .mt-range-bar .bb-label > span:first-child{flex:1;min-width:0;}
-/* Con el límite oculto, la barrita desaparece de arriba y queda solo este
-   botoncito debajo de "Comparar meses" para volver a prenderla. */
-.rg-hidden-slot{display:flex;justify-content:flex-end;margin:-4px 0 10px;}
+/* Con el límite oculto, la barrita no se pinta y queda solo este botoncito, en
+   la MISMA línea del cashback y pegado a la derecha (no ocupa una fila propia). */
+.mt-cb-row{display:flex;align-items:center;gap:8px;}
+.rg-hidden-slot{display:flex;margin:6px 0 0 auto;}
 .rg-hidden-btn{
   background:transparent;border:0;color:var(--muted);
   font-size:15px;line-height:1;padding:2px 2px;cursor:pointer;opacity:.6;
 }
+/* Menú del botón 🗓️ (Resumen del mes / del año) */
+.hdr-menu-wrap{position:relative;display:inline-flex;}
+.hdr-menu{min-width:180px;}
+/* ---- Resumen del mes ---- */
+.ms-hint{font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.4;}
+.ms-top{margin-top:4px;}
+.ms-top-card{
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:4px;
+}
+.ms-top-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px;}
+.ms-top-spent{font-size:20px;font-weight:800;font-family:monospace;}
+.ms-top-of{font-size:12px;color:var(--muted);font-family:monospace;}
+.ms-top-notes{display:flex;flex-direction:column;gap:4px;margin-top:9px;font-size:12px;color:var(--muted);line-height:1.4;}
+.ms-top-notes b{color:var(--bone);}
+.ms-cats{display:flex;flex-direction:column;gap:9px;}
+.ms-row{background:var(--chip);border-radius:10px;padding:9px 10px;cursor:pointer;}
+.ms-row:active{opacity:.7;}
+.ms-row-head{display:flex;align-items:baseline;gap:8px;font-size:13px;margin-bottom:6px;}
+.ms-row-name{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ms-row-right{font-size:11px;font-family:monospace;color:var(--muted);white-space:nowrap;}
+.ms-row-right.ok{color:#4ade80;}
+.ms-row-right.warn{color:#f2c94c;}
+.ms-row-right.over{color:#ff6b6b;}
+.ms-row-amts{font-size:11px;font-family:monospace;color:var(--muted);margin-bottom:5px;}
+.ms-track{height:7px;background:var(--bg);border-radius:5px;overflow:hidden;}
+.ms-fill{height:100%;border-radius:5px;background:var(--accent);}
+.ms-fill.warn{background:#f2c94c;}
+.ms-fill.over{background:#ff6b6b;}
+.ms-fill.none{background:var(--line);}
+.ms-advice{display:flex;flex-direction:column;gap:8px;}
+.ms-adv{background:var(--chip);border-radius:10px;padding:10px;font-size:12.5px;line-height:1.5;}
+.ms-adv b{color:var(--bone);}
+.ms-adv.good{border-left:3px solid #4ade80;}
+.ms-adv.bad{border-left:3px solid #ff6b6b;}
+.ms-adv.info{border-left:3px solid var(--accent);}
+.ms-adv ul{margin:6px 0 0;padding-left:18px;}
+.ms-adv li{margin-bottom:3px;}
 .freq-note-form-hint{margin:6px 0 10px;}
 .emoji-input{
   width:56px !important;
@@ -1246,6 +1284,7 @@ body.cd-open{
   margin-top:10px;
 }
 .cd-budget-bar.show{display:block;}
+.mt-budget-bars:empty{display:none;}
 .cd-budget-bar .bb-label{
   display:flex;
   justify-content:space-between;
